@@ -135,11 +135,11 @@ func unmarshallAllocationTxs(allocation *bundlev1alpha1.Allocation, prevBlockHas
 	processedTxs := types.Transactions{}
 	payload := allocation.GetPayload()
 
-	log.Info("Found a potential allocation in the rollup data. Checking if it is valid.")
+	log.Debug("Found a potential allocation in the rollup data. Checking if it is valid.", "prevBlockHash", common.BytesToHash(prevBlockHash).String(), "auctioneerBech32Address", auctioneerBech32Address)
 
-	if !bytes.Equal(payload.PrevRollupBlockHash, prevBlockHash) {
+	if !bytes.Equal(payload.GetPrevRollupBlockHash(), prevBlockHash) {
 		allocationsWithInvalidPrevBlockHash.Inc(1)
-		return nil, errors.New("prev block hash do not match in allocation")
+		return nil, errors.New("prev block hash in allocation does not match the previous block hash")
 	}
 
 	publicKey := ed25519.PublicKey(allocation.GetPublicKey())
@@ -147,6 +147,7 @@ func unmarshallAllocationTxs(allocation *bundlev1alpha1.Allocation, prevBlockHas
 	if err != nil {
 		return nil, WrapError(err, fmt.Sprintf("failed to encode public key to bech32m address: %s", publicKey))
 	}
+
 	if auctioneerBech32Address != bech32Address {
 		allocationsWithInvalidPubKey.Inc(1)
 		return nil, fmt.Errorf("address in allocation does not match auctioneer address. expected: %s, got: %s", auctioneerBech32Address, bech32Address)
@@ -163,7 +164,7 @@ func unmarshallAllocationTxs(allocation *bundlev1alpha1.Allocation, prevBlockHas
 		return nil, fmt.Errorf("signature in allocation does not match the public key")
 	}
 
-	log.Info("Allocation is valid. Unmarshalling the transactions in the bundle.")
+	log.Debug("Allocation is valid. Unmarshalling the transactions in the bundle.")
 	// unmarshall the transactions in the bundle
 	for _, allocationTx := range payload.GetTransactions() {
 		ethtx := new(types.Transaction)

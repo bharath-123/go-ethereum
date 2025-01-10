@@ -127,7 +127,7 @@ func TestUnmarshallAllocationTxs(t *testing.T) {
 			},
 			prevBlockHash:  []byte("not prev rollup block hash"),
 			expectedOutput: types.Transactions{},
-			wantErr:        "prev block hash do not match in allocation",
+			wantErr:        "prev block hash in allocation does not match the previous block hash",
 		},
 		{
 			description: "public key doesn't match",
