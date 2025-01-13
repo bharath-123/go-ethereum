@@ -78,22 +78,25 @@ type TxPool struct {
 	term chan struct{}           // Termination channel to detect a closed pool
 
 	sync chan chan error // Testing / simulator channel to block until internal reset is done
+
+	auctioneerEnabled bool
 }
 
 // New creates a new transaction pool to gather, sort and filter inbound
 // transactions from the network.
-func New(gasTip uint64, chain BlockChain, subpools []SubPool) (*TxPool, error) {
+func New(gasTip uint64, chain BlockChain, subpools []SubPool, auctioneerEnabled bool) (*TxPool, error) {
 	// Retrieve the current head so that all subpools and this main coordinator
 	// pool will have the same starting state, even if the chain moves forward
 	// during initialization.
 	head := chain.CurrentBlock()
 
 	pool := &TxPool{
-		subpools:     subpools,
-		reservations: make(map[common.Address]SubPool),
-		quit:         make(chan chan error),
-		term:         make(chan struct{}),
-		sync:         make(chan chan error),
+		subpools:          subpools,
+		reservations:      make(map[common.Address]SubPool),
+		quit:              make(chan chan error),
+		term:              make(chan struct{}),
+		sync:              make(chan chan error),
+		auctioneerEnabled: auctioneerEnabled,
 	}
 	for i, subpool := range subpools {
 		if err := subpool.Init(gasTip, head, pool.reserver(i, subpool)); err != nil {
@@ -187,6 +190,12 @@ func (p *TxPool) loop(head *types.Header, chain BlockChain) {
 
 	// Subscribe to chain head events to trigger subpool resets
 	var (
+		newOptimisticHeadCh  = make(chan core.ChainOptimisticHeadEvent)
+		newOptimisticHeadSub = chain.SubscribeChainOptimisticHeadEvent(newOptimisticHeadCh)
+	)
+	defer newOptimisticHeadSub.Unsubscribe()
+
+	var (
 		newHeadCh  = make(chan core.ChainHeadEvent)
 		newHeadSub = chain.SubscribeChainHeadEvent(newHeadCh)
 	)
@@ -244,9 +253,16 @@ func (p *TxPool) loop(head *types.Header, chain BlockChain) {
 		}
 		// Wait for the next chain head event or a previous reset finish
 		select {
+		case event := <-newOptimisticHeadCh:
+			if p.auctioneerEnabled {
+				// Chain moved forward, store the head for later consumption
+				newHead = event.Block.Header()
+			}
 		case event := <-newHeadCh:
-			// Chain moved forward, store the head for later consumption
-			newHead = event.Block.Header()
+			if !p.auctioneerEnabled {
+				// Chain moved forward, store the head for later consumption
+				newHead = event.Block.Header()
+			}
 
 		case head := <-resetDone:
 			// Previous reset finished, update the old head and allow a new reset
@@ -427,6 +443,18 @@ func (p *TxPool) SubscribeTransactions(ch chan<- core.NewTxsEvent, reorgs bool) 
 	subs := make([]event.Subscription, len(p.subpools))
 	for i, subpool := range p.subpools {
 		subs[i] = subpool.SubscribeTransactions(ch, reorgs)
+	}
+	return p.subs.Track(event.JoinSubscriptions(subs...))
+}
+
+// SubscribeMempoolClearance registers a subscription for new mempool clearance events
+func (p *TxPool) SubscribeMempoolClearance(ch chan<- core.NewMempoolCleared) event.Subscription {
+	subs := []event.Subscription{}
+	for _, subpool := range p.subpools {
+		sub := subpool.SubscribeMempoolClearance(ch)
+		if sub != nil {
+			subs = append(subs, sub)
+		}
 	}
 	return p.subs.Track(event.JoinSubscriptions(subs...))
 }

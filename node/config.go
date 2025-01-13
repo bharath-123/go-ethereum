@@ -217,6 +217,8 @@ type Config struct {
 	EnablePersonal bool `toml:"-"`
 
 	DBEngine string `toml:",omitempty"`
+
+	EnableAuctioneer bool `toml:",omitempty"`
 }
 
 // IPCEndpoint resolves an IPC endpoint based on a configured value, taking into
@@ -273,7 +275,7 @@ func (c *Config) HTTPEndpoint() string {
 	return net.JoinHostPort(c.HTTPHost, fmt.Sprintf("%d", c.HTTPPort))
 }
 
-// GRPCEndpoint resolves a gRPC endpoint based on the configured host interface
+// GRPCEndpoint resolves a gRPC TCP endpoint based on the configured host interface
 // and port parameters.
 func (c *Config) GRPCEndpoint() string {
 	if c.GRPCHost == "" {
