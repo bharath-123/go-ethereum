@@ -1,11 +1,12 @@
 package shared
 
 import (
-	bundlev1alpha1 "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/bundle/v1alpha1"
+	auctionv1alpha1 "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/auction/v1alpha1"
 	"bytes"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 	"math/big"
 	"testing"
 
@@ -19,6 +20,25 @@ import (
 	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 )
+
+type allocationInfo struct {
+	signature []byte
+	publicKey []byte
+	bid       *auctionv1alpha1.Bid
+}
+
+func (a *allocationInfo) convertToAllocation() (*auctionv1alpha1.Allocation, error) {
+	convertedBid, err := anypb.New(a.bid)
+	if err != nil {
+		return nil, err
+	}
+
+	return &auctionv1alpha1.Allocation{
+		Signature: a.signature,
+		PublicKey: a.publicKey,
+		Bid:       convertedBid,
+	}, nil
+}
 
 func transaction(nonce uint64, gaslimit uint64, key *ecdsa.PrivateKey) *types.Transaction {
 	return pricedTransaction(nonce, gaslimit, big.NewInt(1), key)
@@ -88,14 +108,14 @@ func TestUnmarshallAllocationTxs(t *testing.T) {
 	validMarshalledTx3, err := tx3.MarshalBinary()
 	require.NoError(t, err, "failed to marshal valid tx: %v", err)
 
-	validPayload := &bundlev1alpha1.Bundle{
-		Fee:                    100,
-		Transactions:           [][]byte{validMarshalledTx1, validMarshalledTx2, validMarshalledTx3},
-		BaseSequencerBlockHash: []byte("sequencer block hash"),
-		PrevRollupBlockHash:    []byte("prev rollup block hash"),
+	validBid := &auctionv1alpha1.Bid{
+		Fee:                      100,
+		Transactions:             [][]byte{validMarshalledTx1, validMarshalledTx2, validMarshalledTx3},
+		SequencerParentBlockHash: []byte("sequencer block hash"),
+		RollupParentBlockHash:    []byte("prev rollup block hash"),
 	}
 
-	marshalledAllocation, err := proto.Marshal(validPayload)
+	marshalledAllocation, err := proto.Marshal(validBid)
 	require.NoError(t, err, "failed to marshal payload: %v", err)
 
 	signedAllocation, err := auctioneerPrivKey.Sign(nil, marshalledAllocation, &ed25519.Options{
@@ -105,8 +125,10 @@ func TestUnmarshallAllocationTxs(t *testing.T) {
 	require.NoError(t, err, "failed to sign allocation: %v", err)
 
 	tests := []struct {
-		description    string
-		allocation     *bundlev1alpha1.Allocation
+		description string
+
+		allocationInfo allocationInfo
+
 		prevBlockHash  []byte
 		expectedOutput types.Transactions
 		// just check if error contains the string since error contains other details
@@ -114,31 +136,30 @@ func TestUnmarshallAllocationTxs(t *testing.T) {
 	}{
 		{
 			description: "previous block hash mismatch",
-			allocation: &bundlev1alpha1.Allocation{
-				// TODO - add signature and public key validation
-				Signature: make([]byte, 0),
-				PublicKey: make([]byte, 0),
-				Payload: &bundlev1alpha1.Bundle{
-					Fee:                    100,
-					Transactions:           [][]byte{[]byte("unmarshallable tx")},
-					BaseSequencerBlockHash: []byte("sequencer block hash"),
-					PrevRollupBlockHash:    []byte("prev rollup block hash"),
+			allocationInfo: allocationInfo{
+				signature: make([]byte, 0),
+				publicKey: make([]byte, 0),
+				bid: &auctionv1alpha1.Bid{
+					Fee:                      100,
+					Transactions:             [][]byte{[]byte("unmarshallable tx")},
+					SequencerParentBlockHash: []byte("sequencer block hash"),
+					RollupParentBlockHash:    []byte("prev rollup block hash"),
 				},
 			},
 			prevBlockHash:  []byte("not prev rollup block hash"),
 			expectedOutput: types.Transactions{},
-			wantErr:        "prev block hash do not match in allocation",
+			wantErr:        "prev block hash in allocation does not match the previous block hash",
 		},
 		{
 			description: "public key doesn't match",
-			allocation: &bundlev1alpha1.Allocation{
-				Signature: []byte("invalid signature"),
-				PublicKey: []byte("invalid public key"),
-				Payload: &bundlev1alpha1.Bundle{
-					Fee:                    100,
-					Transactions:           [][]byte{[]byte("unmarshallable tx")},
-					BaseSequencerBlockHash: []byte("sequencer block hash"),
-					PrevRollupBlockHash:    []byte("prev rollup block hash"),
+			allocationInfo: allocationInfo{
+				signature: []byte("invalid signature"),
+				publicKey: []byte("invalid public key"),
+				bid: &auctionv1alpha1.Bid{
+					Fee:                      100,
+					Transactions:             [][]byte{[]byte("unmarshallable tx")},
+					SequencerParentBlockHash: []byte("sequencer block hash"),
+					RollupParentBlockHash:    []byte("prev rollup block hash"),
 				},
 			},
 			prevBlockHash:  []byte("prev rollup block hash"),
@@ -147,14 +168,14 @@ func TestUnmarshallAllocationTxs(t *testing.T) {
 		},
 		{
 			description: "invalid signature",
-			allocation: &bundlev1alpha1.Allocation{
-				Signature: []byte("invalid signature"),
-				PublicKey: auctioneerPubKey,
-				Payload: &bundlev1alpha1.Bundle{
-					Fee:                    100,
-					Transactions:           [][]byte{[]byte("unmarshallable tx")},
-					BaseSequencerBlockHash: []byte("sequencer block hash"),
-					PrevRollupBlockHash:    []byte("prev rollup block hash"),
+			allocationInfo: allocationInfo{
+				signature: []byte("invalid signature"),
+				publicKey: auctioneerPubKey,
+				bid: &auctionv1alpha1.Bid{
+					Fee:                      100,
+					Transactions:             [][]byte{[]byte("unmarshallable tx")},
+					SequencerParentBlockHash: []byte("sequencer block hash"),
+					RollupParentBlockHash:    []byte("prev rollup block hash"),
 				},
 			},
 			prevBlockHash:  []byte("prev rollup block hash"),
@@ -163,10 +184,10 @@ func TestUnmarshallAllocationTxs(t *testing.T) {
 		},
 		{
 			description: "valid allocation",
-			allocation: &bundlev1alpha1.Allocation{
-				Signature: signedAllocation,
-				PublicKey: auctioneerPubKey,
-				Payload:   validPayload,
+			allocationInfo: allocationInfo{
+				signature: signedAllocation,
+				publicKey: auctioneerPubKey,
+				bid:       validBid,
 			},
 			prevBlockHash:  []byte("prev rollup block hash"),
 			expectedOutput: types.Transactions{tx1, tx2, tx3},
@@ -176,7 +197,10 @@ func TestUnmarshallAllocationTxs(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.description, func(t *testing.T) {
-			finalTxs, err := unmarshallAllocationTxs(test.allocation, test.prevBlockHash, serviceV1Alpha1.AuctioneerAddress(), addressPrefix)
+			allocation, err := test.allocationInfo.convertToAllocation()
+			require.NoError(t, err, "failed to convert allocation info to allocation: %v", err)
+
+			finalTxs, err := unmarshallAllocationTxs(allocation, test.prevBlockHash, serviceV1Alpha1.AuctioneerAddress(), addressPrefix)
 			if test.wantErr == "" && err == nil {
 				for _, tx := range test.expectedOutput {
 					foundTx := false
@@ -394,25 +418,28 @@ func TestUnbundleRollupData(t *testing.T) {
 	validMarshalledTx5, err := tx5.MarshalBinary()
 	require.NoError(t, err, "failed to marshal valid tx: %v", err)
 
-	payload := &bundlev1alpha1.Bundle{
-		Fee:                    100,
-		Transactions:           [][]byte{validMarshalledTx1, validMarshalledTx2, validMarshalledTx3},
-		BaseSequencerBlockHash: baseSequencerBlockHash,
-		PrevRollupBlockHash:    prevRollupBlockHash,
+	bid := &auctionv1alpha1.Bid{
+		Fee:                      100,
+		Transactions:             [][]byte{validMarshalledTx1, validMarshalledTx2, validMarshalledTx3},
+		SequencerParentBlockHash: baseSequencerBlockHash,
+		RollupParentBlockHash:    prevRollupBlockHash,
 	}
 
-	marshalledPayload, err := proto.Marshal(payload)
+	marshalledBid, err := proto.Marshal(bid)
 	require.NoError(t, err, "failed to marshal payload: %v", err)
-	signedPayload, err := auctioneerPrivKey.Sign(nil, marshalledPayload, &ed25519.Options{
+	signedBid, err := auctioneerPrivKey.Sign(nil, marshalledBid, &ed25519.Options{
 		Hash:    0,
 		Context: "",
 	})
 	require.NoError(t, err, "failed to sign payload: %v", err)
 
-	allocation := &bundlev1alpha1.Allocation{
-		Signature: signedPayload,
+	// TODO - we need better naming here!
+	finalBid, err := anypb.New(bid)
+
+	allocation := &auctionv1alpha1.Allocation{
+		Signature: signedBid,
 		PublicKey: auctioneerPubKey,
-		Payload:   payload,
+		Bid:       finalBid,
 	}
 
 	marshalledAllocation, err := proto.Marshal(allocation)
@@ -492,25 +519,28 @@ func TestUnbundleRollupDataWithDuplicateAllocations(t *testing.T) {
 	validMarshalledTx5, err := tx5.MarshalBinary()
 	require.NoError(t, err, "failed to marshal valid tx: %v", err)
 
-	payload := &bundlev1alpha1.Bundle{
-		Fee:                    100,
-		Transactions:           [][]byte{validMarshalledTx1, validMarshalledTx2, validMarshalledTx3},
-		BaseSequencerBlockHash: baseSequencerBlockHash,
-		PrevRollupBlockHash:    prevRollupBlockHash,
+	bid := &auctionv1alpha1.Bid{
+		Fee:                      100,
+		Transactions:             [][]byte{validMarshalledTx1, validMarshalledTx2, validMarshalledTx3},
+		SequencerParentBlockHash: baseSequencerBlockHash,
+		RollupParentBlockHash:    prevRollupBlockHash,
 	}
 
-	marshalledPayload, err := proto.Marshal(payload)
+	marshalledBid, err := proto.Marshal(bid)
 	require.NoError(t, err, "failed to marshal payload: %v", err)
-	signedPayload, err := auctioneerPrivKey.Sign(nil, marshalledPayload, &ed25519.Options{
+	signedPayload, err := auctioneerPrivKey.Sign(nil, marshalledBid, &ed25519.Options{
 		Hash:    0,
 		Context: "",
 	})
 	require.NoError(t, err, "failed to sign payload: %v", err)
 
-	allocation := &bundlev1alpha1.Allocation{
+	finalBid, err := anypb.New(bid)
+	require.NoError(t, err, "failed to convert bid to anypb: %v", err)
+
+	allocation := &auctionv1alpha1.Allocation{
 		Signature: signedPayload,
 		PublicKey: auctioneerPubKey,
-		Payload:   payload,
+		Bid:       finalBid,
 	}
 
 	marshalledAllocation, err := proto.Marshal(allocation)
@@ -607,50 +637,55 @@ func TestUnbundleRollupDataWithDuplicateInvalidAllocations(t *testing.T) {
 	invalidMarshalledTx2, err := invalidTx2.MarshalBinary()
 	require.NoError(t, err, "failed to marshal valid tx: %v", err)
 
-	payload := &bundlev1alpha1.Bundle{
-		Fee:                    100,
-		Transactions:           [][]byte{validMarshalledTx1, validMarshalledTx2, validMarshalledTx3},
-		BaseSequencerBlockHash: baseSequencerBlockHash,
-		PrevRollupBlockHash:    prevRollupBlockHash,
+	bid := &auctionv1alpha1.Bid{
+		Fee:                      100,
+		Transactions:             [][]byte{validMarshalledTx1, validMarshalledTx2, validMarshalledTx3},
+		SequencerParentBlockHash: baseSequencerBlockHash,
+		RollupParentBlockHash:    prevRollupBlockHash,
 	}
+	validBidAny, err := anypb.New(bid)
+	require.NoError(t, err, "failed to convert bid to anypb: %v", err)
 
-	marshalledPayload, err := proto.Marshal(payload)
+	marshalledBid, err := proto.Marshal(bid)
 	require.NoError(t, err, "failed to marshal allocation: %v", err)
-	signedPayload, err := auctioneerPrivKey.Sign(nil, marshalledPayload, &ed25519.Options{
+	signedBid, err := auctioneerPrivKey.Sign(nil, marshalledBid, &ed25519.Options{
 		Hash:    0,
 		Context: "",
 	})
 	require.NoError(t, err, "failed to sign allocation: %v", err)
 
-	invalidPayload := &bundlev1alpha1.Bundle{
-		Fee:                    100,
-		Transactions:           [][]byte{invalidMarshalledTx1, invalidMarshalledTx2},
-		BaseSequencerBlockHash: baseSequencerBlockHash,
-		PrevRollupBlockHash:    prevRollupBlockHash,
+	invalidBid := &auctionv1alpha1.Bid{
+		Fee:                      100,
+		Transactions:             [][]byte{invalidMarshalledTx1, invalidMarshalledTx2},
+		SequencerParentBlockHash: baseSequencerBlockHash,
+		RollupParentBlockHash:    prevRollupBlockHash,
 	}
-	marshalledInvalidPayload, err := proto.Marshal(invalidPayload)
+	invalidBidAny, err := anypb.New(invalidBid)
+	require.NoError(t, err, "failed to convert bid to anypb: %v", err)
+
+	marshalledInvalidBid, err := proto.Marshal(invalidBid)
 	require.NoError(t, err, "failed to marshal invalid allocation: %v", err)
 
-	signedInvalidPayload, err := invalidAuctioneerprivkey.Sign(nil, marshalledInvalidPayload, &ed25519.Options{
+	signedInvalidBid, err := invalidAuctioneerprivkey.Sign(nil, marshalledInvalidBid, &ed25519.Options{
 		Hash:    0,
 		Context: "",
 	})
 	require.NoError(t, err, "failed to sign allocation: %v", err)
 
-	allocation := &bundlev1alpha1.Allocation{
-		Signature: signedPayload,
+	allocation := &auctionv1alpha1.Allocation{
+		Signature: signedBid,
 		PublicKey: auctioneerPubKey,
-		Payload:   payload,
+		Bid:       validBidAny,
 	}
 
 	marshalledAllocation, err := proto.Marshal(allocation)
 	require.NoError(t, err, "failed to marshal allocation: %v", err)
 
-	invalidAllocation := &bundlev1alpha1.Allocation{
-		Signature: signedInvalidPayload,
+	invalidAllocation := &auctionv1alpha1.Allocation{
+		Signature: signedInvalidBid,
 		// trying to spoof the actual auctioneer key
 		PublicKey: auctioneerPubKey,
-		Payload:   invalidPayload,
+		Bid:       invalidBidAny,
 	}
 	marshalledInvalidAllocation, err := proto.Marshal(invalidAllocation)
 	require.NoError(t, err, "failed to marshal invalid allocation: %v", err)

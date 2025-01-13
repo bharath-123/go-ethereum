@@ -1,7 +1,7 @@
 package shared
 
 import (
-	bundlev1alpha1 "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/bundle/v1alpha1"
+	auctionv1alpha1 "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/auction/v1alpha1"
 	primitivev1 "buf.build/gen/go/astria/primitives/protocolbuffers/go/astria/primitive/v1"
 	sequencerblockv1 "buf.build/gen/go/astria/sequencerblock-apis/protocolbuffers/go/astria/sequencerblock/v1"
 	"bytes"
@@ -13,9 +13,22 @@ import (
 	"github.com/ethereum/go-ethereum/contracts"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/golang/protobuf/proto"
+	proto2 "google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 	"math/big"
+	"time"
+)
+
+var (
+	successfulUnbundledAllocations      = metrics.GetOrRegisterGauge("astria/optimistic/successful_unbundled_allocations", nil)
+	allocationsWithInvalidPrevBlockHash = metrics.GetOrRegisterGauge("astria/optimistic/allocations_with_invalid_prev_block_hash", nil)
+	allocationsWithInvalidPubKey        = metrics.GetOrRegisterGauge("astria/optimistic/allocations_with_invalid_pub_key", nil)
+	allocationsWithInvalidSignature     = metrics.GetOrRegisterGauge("astria/optimistic/allocations_with_invalid_signature", nil)
+
+	allocationUnbundlingTimer = metrics.GetOrRegisterTimer("astria/optimistic/allocation_unbundling_time", nil)
 )
 
 func WrapError(err error, msg string) error {
@@ -117,13 +130,28 @@ func validateAndUnmarshallSequenceAction(tx *sequencerblockv1.RollupData) (*type
 	return ethTx, nil
 }
 
-func unmarshallAllocationTxs(allocation *bundlev1alpha1.Allocation, prevBlockHash []byte, auctioneerBech32Address string, addressPrefix string) (types.Transactions, error) {
-	log.Info("Found a potential allocation in the rollup data. Checking if it is valid.")
-	processedTxs := types.Transactions{}
-	payload := allocation.GetPayload()
+func unmarshallAllocationTxs(allocation *auctionv1alpha1.Allocation, prevBlockHash []byte, auctioneerBech32Address string, addressPrefix string) (types.Transactions, error) {
+	unbundlingStart := time.Now()
+	defer allocationUnbundlingTimer.UpdateSince(unbundlingStart)
 
-	if !bytes.Equal(payload.PrevRollupBlockHash, prevBlockHash) {
-		return nil, errors.New("prev block hash do not match in allocation")
+	processedTxs := types.Transactions{}
+	bid := &auctionv1alpha1.Bid{}
+
+	unprocessedBid := allocation.GetBid()
+
+	err := anypb.UnmarshalTo(unprocessedBid, bid, proto2.UnmarshalOptions{
+		Merge:        false,
+		AllowPartial: false,
+	})
+	if err != nil {
+		return nil, WrapError(err, "failed to unmarshal bid")
+	}
+
+	log.Debug("Found a potential allocation in the rollup data. Checking if it is valid.", "prevBlockHash", common.BytesToHash(prevBlockHash).String(), "auctioneerBech32Address", auctioneerBech32Address)
+
+	if !bytes.Equal(bid.GetRollupParentBlockHash(), prevBlockHash) {
+		allocationsWithInvalidPrevBlockHash.Inc(1)
+		return nil, errors.New("prev block hash in allocation does not match the previous block hash")
 	}
 
 	publicKey := ed25519.PublicKey(allocation.GetPublicKey())
@@ -131,23 +159,26 @@ func unmarshallAllocationTxs(allocation *bundlev1alpha1.Allocation, prevBlockHas
 	if err != nil {
 		return nil, WrapError(err, fmt.Sprintf("failed to encode public key to bech32m address: %s", publicKey))
 	}
+
 	if auctioneerBech32Address != bech32Address {
+		allocationsWithInvalidPubKey.Inc(1)
 		return nil, fmt.Errorf("address in allocation does not match auctioneer address. expected: %s, got: %s", auctioneerBech32Address, bech32Address)
 	}
 
-	message, err := proto.Marshal(allocation.GetPayload())
+	message, err := proto.Marshal(bid)
 	if err != nil {
 		return nil, WrapError(err, "failed to marshal allocation to verify signature")
 	}
 
 	signature := allocation.GetSignature()
 	if !ed25519.Verify(publicKey, message, signature) {
+		allocationsWithInvalidSignature.Inc(1)
 		return nil, fmt.Errorf("signature in allocation does not match the public key")
 	}
 
-	log.Info("Allocation is valid. Unmarshalling the transactions in the bundle.")
-	// unmarshall the transactions in the bundle
-	for _, allocationTx := range payload.GetTransactions() {
+	log.Debug("Allocation is valid. Unmarshalling the transactions in the bid.")
+	// unmarshall the transactions in the bid
+	for _, allocationTx := range bid.GetTransactions() {
 		ethtx := new(types.Transaction)
 		err := ethtx.UnmarshalBinary(allocationTx)
 		if err != nil {
@@ -155,6 +186,8 @@ func unmarshallAllocationTxs(allocation *bundlev1alpha1.Allocation, prevBlockHas
 		}
 		processedTxs = append(processedTxs, ethtx)
 	}
+
+	successfulUnbundledAllocations.Inc(1)
 
 	return processedTxs, nil
 
@@ -167,8 +200,8 @@ func UnbundleRollupDataTransactions(txs []*sequencerblockv1.RollupData, height u
 
 	processedTxs := types.Transactions{}
 	allocationTxs := types.Transactions{}
-	// we just return the allocation here and do not unmarshall the transactions in the bundle if we find it
-	var allocation *bundlev1alpha1.Allocation
+	// we just return the allocation here and do not unmarshall the transactions in the bid if we find it
+	var allocation *auctionv1alpha1.Allocation
 	for _, tx := range txs {
 		if deposit := tx.GetDeposit(); deposit != nil {
 			depositTx, err := validateAndUnmarshalDepositTx(deposit, height, bridgeAddresses, bridgeAllowedAssets)
@@ -183,7 +216,7 @@ func UnbundleRollupDataTransactions(txs []*sequencerblockv1.RollupData, height u
 			// check if sequence data is of type Allocation
 			if allocation == nil {
 				// TODO - check if we can avoid a temp value
-				tempAllocation := &bundlev1alpha1.Allocation{}
+				tempAllocation := &auctionv1alpha1.Allocation{}
 				err := proto.Unmarshal(sequenceData, tempAllocation)
 				if err == nil {
 					unmarshalledAllocationTxs, err := unmarshallAllocationTxs(tempAllocation, prevBlockHash, auctioneerBech32Address, addressPrefix)

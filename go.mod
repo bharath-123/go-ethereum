@@ -3,10 +3,10 @@ module github.com/ethereum/go-ethereum
 go 1.21
 
 require (
-	buf.build/gen/go/astria/execution-apis/grpc/go v1.5.1-00000000000000-e09c7fd3fe26.1
-	buf.build/gen/go/astria/execution-apis/protocolbuffers/go v1.35.2-00000000000000-e09c7fd3fe26.1
-	buf.build/gen/go/astria/primitives/protocolbuffers/go v1.35.2-00000000000000-2f2e9ce53f59.1
-	buf.build/gen/go/astria/sequencerblock-apis/protocolbuffers/go v1.35.2-00000000000000-0eda7df0ee38.1
+	buf.build/gen/go/astria/execution-apis/grpc/go v1.5.1-00000000000000-42cbdd5aad4c.2
+	buf.build/gen/go/astria/execution-apis/protocolbuffers/go v1.36.2-00000000000000-42cbdd5aad4c.1
+	buf.build/gen/go/astria/primitives/protocolbuffers/go v1.36.2-00000000000000-9a039a6ed8db.1
+	buf.build/gen/go/astria/sequencerblock-apis/protocolbuffers/go v1.36.2-00000000000000-e54e1c9ad405.1
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.2.0
 	github.com/Microsoft/go-winio v0.6.1
 	github.com/VictoriaMetrics/fastcache v1.12.1
@@ -79,7 +79,7 @@ require (
 	golang.org/x/time v0.5.0
 	golang.org/x/tools v0.21.1-0.20240508182429-e35e4ccd0d2d
 	google.golang.org/grpc v1.64.1
-	google.golang.org/protobuf v1.35.2
+	google.golang.org/protobuf v1.36.2
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
 	gopkg.in/yaml.v3 v3.0.1
 )
