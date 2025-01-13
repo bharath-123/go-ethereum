@@ -18,6 +18,7 @@
 package utils
 
 import (
+	optimisticGrpc "buf.build/gen/go/astria/execution-apis/grpc/go/astria/auction/v1alpha1/auctionv1alpha1grpc"
 	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
@@ -769,6 +770,13 @@ var (
 		Category: flags.APICategory,
 	}
 
+	// auctioneer
+	AuctioneerEnabledFlag = &cli.BoolFlag{
+		Name:     "auctioneer",
+		Usage:    "Enable the auctioneer server",
+		Category: flags.MinerCategory,
+	}
+
 	// Network Settings
 	MaxPeersFlag = &cli.IntFlag{
 		Name:     "maxpeers",
@@ -1438,6 +1446,12 @@ func SetNodeConfig(ctx *cli.Context, cfg *node.Config) {
 	SetDataDir(ctx, cfg)
 	setSmartCard(ctx, cfg)
 
+	if ctx.Bool(AuctioneerEnabledFlag.Name) {
+		cfg.EnableAuctioneer = true
+	} else {
+		cfg.EnableAuctioneer = false
+	}
+
 	if ctx.IsSet(JWTSecretFlag.Name) {
 		cfg.JWTSecret = ctx.String(JWTSecretFlag.Name)
 	}
@@ -1987,10 +2001,10 @@ func RegisterGraphQLService(stack *node.Node, backend ethapi.Backend, filterSyst
 	}
 }
 
-// RegisterGRPCExecutionService adds the gRPC API to the node.
+// RegisterGRPCServices adds the gRPC API to the node.
 // It was done this way so that our grpc execution server can access the ethapi.Backend
-func RegisterGRPCExecutionService(stack *node.Node, execServ astriaGrpc.ExecutionServiceServer, cfg *node.Config) {
-	if err := node.NewGRPCServerHandler(stack, execServ, cfg); err != nil {
+func RegisterGRPCServices(stack *node.Node, execServ astriaGrpc.ExecutionServiceServer, optimisticExecutionServ optimisticGrpc.OptimisticExecutionServiceServer, auctionServiceServer optimisticGrpc.AuctionServiceServer, cfg *node.Config) {
+	if err := node.NewGRPCServerHandler(stack, execServ, optimisticExecutionServ, auctionServiceServer, cfg); err != nil {
 		Fatalf("Failed to register the gRPC service: %v", err)
 	}
 }
