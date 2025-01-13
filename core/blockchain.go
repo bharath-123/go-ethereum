@@ -54,11 +54,12 @@ import (
 )
 
 var (
-	headBlockGauge          = metrics.NewRegisteredGauge("chain/head/block", nil)
-	headHeaderGauge         = metrics.NewRegisteredGauge("chain/head/header", nil)
-	headFastBlockGauge      = metrics.NewRegisteredGauge("chain/head/receipt", nil)
-	headFinalizedBlockGauge = metrics.NewRegisteredGauge("chain/head/finalized", nil)
-	headSafeBlockGauge      = metrics.NewRegisteredGauge("chain/head/safe", nil)
+	headBlockGauge           = metrics.NewRegisteredGauge("chain/head/block", nil)
+	headHeaderGauge          = metrics.NewRegisteredGauge("chain/head/header", nil)
+	headFastBlockGauge       = metrics.NewRegisteredGauge("chain/head/receipt", nil)
+	headFinalizedBlockGauge  = metrics.NewRegisteredGauge("chain/head/finalized", nil)
+	headSafeBlockGauge       = metrics.NewRegisteredGauge("chain/head/safe", nil)
+	headOptimisticBlockGauge = metrics.NewRegisteredGauge("chain/head/optimistic", nil)
 
 	chainInfoGauge = metrics.NewRegisteredGaugeInfo("chain/info", nil)
 
@@ -219,24 +220,26 @@ type BlockChain struct {
 	stateCache    state.Database                   // State database to reuse between imports (contains state cache)
 	txIndexer     *txIndexer                       // Transaction indexer, might be nil if not enabled
 
-	hc            *HeaderChain
-	rmLogsFeed    event.Feed
-	chainFeed     event.Feed
-	chainSideFeed event.Feed
-	chainHeadFeed event.Feed
-	logsFeed      event.Feed
-	blockProcFeed event.Feed
-	scope         event.SubscriptionScope
-	genesisBlock  *types.Block
+	hc                      *HeaderChain
+	rmLogsFeed              event.Feed
+	chainFeed               event.Feed
+	chainSideFeed           event.Feed
+	chainHeadFeed           event.Feed
+	chainOptimisticHeadFeed event.Feed
+	logsFeed                event.Feed
+	blockProcFeed           event.Feed
+	scope                   event.SubscriptionScope
+	genesisBlock            *types.Block
 
 	// This mutex synchronizes chain write operations.
 	// Readers don't need to take it, they can just read the database.
 	chainmu *syncx.ClosableMutex
 
-	currentBlock      atomic.Pointer[types.Header] // Current head of the chain
-	currentSnapBlock  atomic.Pointer[types.Header] // Current head of snap-sync
-	currentFinalBlock atomic.Pointer[types.Header] // Latest (consensus) finalized block
-	currentSafeBlock  atomic.Pointer[types.Header] // Latest (consensus) safe block
+	currentBlock           atomic.Pointer[types.Header] // Current head of the chain
+	currentSnapBlock       atomic.Pointer[types.Header] // Current head of snap-sync
+	currentFinalBlock      atomic.Pointer[types.Header] // Latest (consensus) finalized block
+	currentSafeBlock       atomic.Pointer[types.Header] // Latest (consensus) safe block
+	currentOptimisticBlock atomic.Pointer[types.Header] // Latest optimistic block
 
 	currentBaseCelestiaHeight atomic.Uint64 // Latest finalized block height on Celestia
 
@@ -325,6 +328,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, genesis *Genesis
 	bc.currentBlock.Store(bc.genesisBlock.Header())
 	bc.currentFinalBlock.Store(bc.genesisBlock.Header())
 	bc.currentSafeBlock.Store(bc.genesisBlock.Header())
+	bc.currentOptimisticBlock.Store(bc.genesisBlock.Header())
 	bc.currentBaseCelestiaHeight.Store(bc.Config().AstriaCelestiaInitialHeight)
 
 	// Update chain info data metrics
@@ -532,6 +536,7 @@ func (bc *BlockChain) loadLastState() error {
 			bc.currentFinalBlock.Store(block.Header())
 			headFinalizedBlockGauge.Update(int64(block.NumberU64()))
 			bc.currentSafeBlock.Store(block.Header())
+			bc.currentOptimisticBlock.Store(block.Header())
 			headSafeBlockGauge.Update(int64(block.NumberU64()))
 		}
 	}
@@ -637,6 +642,19 @@ func (bc *BlockChain) SetSafe(header *types.Header) {
 	} else {
 		headSafeBlockGauge.Update(0)
 	}
+}
+
+// SetOptimistic sets the optimistic block.
+func (bc *BlockChain) SetOptimistic(block *types.Block) {
+	header := block.Header()
+	bc.currentOptimisticBlock.Store(header)
+	if header != nil {
+		headOptimisticBlockGauge.Update(int64(header.Number.Uint64()))
+	} else {
+		headOptimisticBlockGauge.Update(0)
+	}
+
+	bc.chainOptimisticHeadFeed.Send(ChainOptimisticHeadEvent{Block: block})
 }
 
 // rewindHashHead implements the logic of rewindHead in the context of hash scheme.
