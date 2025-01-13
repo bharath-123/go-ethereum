@@ -1,7 +1,7 @@
 package optimistic
 
 import (
-	optimsticPb "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/bundle/v1alpha1"
+	optimsticPb "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/auction/v1alpha1"
 	astriaPb "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/execution/v1"
 	primitivev1 "buf.build/gen/go/astria/primitives/protocolbuffers/go/astria/primitive/v1"
 	sequencerblockv1 "buf.build/gen/go/astria/sequencerblock-apis/protocolbuffers/go/astria/sequencerblock/v1"
@@ -193,7 +193,7 @@ func TestOptimisticServiceServerV1Alpha1_ExecuteOptimisticBlock(t *testing.T) {
 	}
 }
 
-func TestNewOptimisticServiceServerV1Alpha_StreamBundles(t *testing.T) {
+func TestNewOptimisticServiceServerV1Alpha_StreamBids(t *testing.T) {
 	ethservice, sharedService, _, _ := shared.SetupSharedService(t, 10)
 
 	optimisticServiceV1Alpha1 := SetupOptimisticService(t, sharedService)
@@ -286,13 +286,13 @@ func TestNewOptimisticServiceServerV1Alpha_StreamBundles(t *testing.T) {
 	require.Equal(t, pending, 0, "Mempool should have 0 pending txs")
 	require.Equal(t, queued, 0, "Mempool should have 0 queued txs")
 
-	mockServerSideStreaming := MockServerSideStreaming[optimsticPb.GetBundleStreamResponse]{
-		sentResponses: []*optimsticPb.GetBundleStreamResponse{},
+	mockServerSideStreaming := MockServerSideStreaming[optimsticPb.GetBidStreamResponse]{
+		sentResponses: []*optimsticPb.GetBidStreamResponse{},
 	}
 
 	errorCh = make(chan error)
 	go func() {
-		errorCh <- optimisticServiceV1Alpha1.GetBundleStream(&optimsticPb.GetBundleStreamRequest{}, &mockServerSideStreaming)
+		errorCh <- optimisticServiceV1Alpha1.GetBidStream(&optimsticPb.GetBidStreamRequest{}, &mockServerSideStreaming)
 	}()
 
 	stateDb, err := ethservice.BlockChain().StateAt(currentOptimisticBlock.Root)
@@ -341,19 +341,19 @@ func TestNewOptimisticServiceServerV1Alpha_StreamBundles(t *testing.T) {
 
 	txIndx := 0
 	for _, resp := range mockServerSideStreaming.sentResponses {
-		bundle := resp.GetBundle()
+		bid := resp.GetBid()
 
-		require.Len(t, bundle.Transactions, 1, "Bundle should have 1 tx")
+		require.Len(t, bid.Transactions, 1, "Bid should have 1 tx")
 
-		receivedTx := bundle.Transactions[0]
+		receivedTx := bid.Transactions[0]
 		sentTx := txs[txIndx]
 		marshalledSentTx, err := sentTx.MarshalBinary()
 		require.Nil(t, err, "Failed to marshal tx")
 		require.True(t, bytes.Equal(receivedTx, marshalledSentTx), "Received tx does not match sent tx")
 		txIndx += 1
 
-		require.True(t, bytes.Equal(bundle.PrevRollupBlockHash, currentOptimisticBlock.Hash().Bytes()), "PrevRollupBlockHash should match the current optimistic block hash")
-		require.True(t, bytes.Equal(bundle.BaseSequencerBlockHash, *optimisticServiceV1Alpha1.currentOptimisticSequencerBlock.Load()), "BaseSequencerBlockHash should match the current optimistic sequencer block hash")
+		require.True(t, bytes.Equal(bid.RollupParentBlockHash, currentOptimisticBlock.Hash().Bytes()), "PrevRollupBlockHash should match the current optimistic block hash")
+		require.True(t, bytes.Equal(bid.SequencerParentBlockHash, *optimisticServiceV1Alpha1.currentOptimisticSequencerBlock.Load()), "BaseSequencerBlockHash should match the current optimistic sequencer block hash")
 	}
 }
 
