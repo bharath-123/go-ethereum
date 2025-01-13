@@ -1,7 +1,7 @@
 package node
 
 import (
-	optimisticGrpc "buf.build/gen/go/astria/execution-apis/grpc/go/astria/bundle/v1alpha1/bundlev1alpha1grpc"
+	optimisticGrpc "buf.build/gen/go/astria/execution-apis/grpc/go/astria/auction/v1alpha1/auctionv1alpha1grpc"
 	"net"
 	"sync"
 
@@ -19,7 +19,7 @@ type GRPCServerHandler struct {
 	execServer                 *grpc.Server
 	executionServiceServerV1a2 *astriaGrpc.ExecutionServiceServer
 	optimisticExecServ         *optimisticGrpc.OptimisticExecutionServiceServer
-	streamBundleServ           *optimisticGrpc.BundleServiceServer
+	auctionServiceServ         *optimisticGrpc.AuctionServiceServer
 
 	enableAuctioneer bool
 }
@@ -27,7 +27,7 @@ type GRPCServerHandler struct {
 // NewServer creates a new gRPC server.
 // It registers the execution service server.
 // It registers the gRPC server with the node so it can be stopped on shutdown.
-func NewGRPCServerHandler(node *Node, execServ astriaGrpc.ExecutionServiceServer, optimisticExecServ optimisticGrpc.OptimisticExecutionServiceServer, streamBundleServ optimisticGrpc.BundleServiceServer, cfg *Config) error {
+func NewGRPCServerHandler(node *Node, execServ astriaGrpc.ExecutionServiceServer, optimisticExecServ optimisticGrpc.OptimisticExecutionServiceServer, auctionServiceServ optimisticGrpc.AuctionServiceServer, cfg *Config) error {
 	execServer := grpc.NewServer()
 
 	log.Info("gRPC server enabled", "endpoint", cfg.GRPCEndpoint())
@@ -37,14 +37,14 @@ func NewGRPCServerHandler(node *Node, execServ astriaGrpc.ExecutionServiceServer
 		execServer:                 execServer,
 		executionServiceServerV1a2: &execServ,
 		optimisticExecServ:         &optimisticExecServ,
-		streamBundleServ:           &streamBundleServ,
+		auctionServiceServ:         &auctionServiceServ,
 		enableAuctioneer:           cfg.EnableAuctioneer,
 	}
 
 	astriaGrpc.RegisterExecutionServiceServer(execServer, execServ)
 	if cfg.EnableAuctioneer {
 		optimisticGrpc.RegisterOptimisticExecutionServiceServer(execServer, optimisticExecServ)
-		optimisticGrpc.RegisterBundleServiceServer(execServer, streamBundleServ)
+		optimisticGrpc.RegisterAuctionServiceServer(execServer, auctionServiceServ)
 	}
 
 	node.RegisterGRPCServer(serverHandler)

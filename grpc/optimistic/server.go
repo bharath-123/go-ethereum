@@ -1,8 +1,8 @@
 package optimistic
 
 import (
-	optimisticGrpc "buf.build/gen/go/astria/execution-apis/grpc/go/astria/bundle/v1alpha1/bundlev1alpha1grpc"
-	optimsticPb "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/bundle/v1alpha1"
+	optimisticGrpc "buf.build/gen/go/astria/execution-apis/grpc/go/astria/auction/v1alpha1/auctionv1alpha1grpc"
+	optimsticPb "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/auction/v1alpha1"
 	astriaPb "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/execution/v1"
 	"context"
 	"errors"
@@ -28,7 +28,7 @@ import (
 
 type OptimisticServiceV1Alpha1 struct {
 	optimisticGrpc.UnimplementedOptimisticExecutionServiceServer
-	optimisticGrpc.UnimplementedBundleServiceServer
+	optimisticGrpc.UnimplementedAuctionServiceServer
 
 	sharedServiceContainer *shared.SharedServiceContainer
 
@@ -54,8 +54,8 @@ func NewOptimisticServiceV1Alpha(sharedServiceContainer *shared.SharedServiceCon
 	return optimisticService
 }
 
-func (o *OptimisticServiceV1Alpha1) GetBundleStream(_ *optimsticPb.GetBundleStreamRequest, stream optimisticGrpc.BundleService_GetBundleStreamServer) error {
-	log.Debug("GetBundleStream called")
+func (o *OptimisticServiceV1Alpha1) GetBidStream(_ *optimsticPb.GetBidStreamRequest, stream optimisticGrpc.AuctionService_GetBidStreamServer) error {
+	log.Debug("GetBidStream called")
 
 	pendingTxEventCh := make(chan core.NewTxsEvent)
 	pendingTxEvent := o.Eth().TxPool().SubscribeTransactions(pendingTxEventCh, false)
@@ -69,7 +69,7 @@ func (o *OptimisticServiceV1Alpha1) GetBundleStream(_ *optimsticPb.GetBundleStre
 			optimisticBlock := o.Eth().BlockChain().CurrentOptimisticBlock()
 
 			for _, pendingTx := range pendingTxs.Txs {
-				bundle := optimsticPb.Bundle{}
+				bid := optimsticPb.Bid{}
 
 				totalCost := big.NewInt(0)
 				effectiveTip := cmath.BigMin(pendingTx.GasTipCap(), new(big.Int).Sub(pendingTx.GasFeeCap(), optimisticBlock.BaseFee))
@@ -82,16 +82,16 @@ func (o *OptimisticServiceV1Alpha1) GetBundleStream(_ *optimsticPb.GetBundleStre
 				}
 				marshalledTxs = append(marshalledTxs, marshalledTx)
 
-				bundle.Fee = totalCost.Uint64()
-				bundle.Transactions = marshalledTxs
-				bundle.BaseSequencerBlockHash = *o.currentOptimisticSequencerBlock.Load()
-				bundle.PrevRollupBlockHash = optimisticBlock.Hash().Bytes()
+				bid.Fee = totalCost.Uint64()
+				bid.Transactions = marshalledTxs
+				bid.SequencerParentBlockHash = *o.currentOptimisticSequencerBlock.Load()
+				bid.RollupParentBlockHash = optimisticBlock.Hash().Bytes()
 
 				txsStreamedCount.Inc(1)
-				err = stream.Send(&optimsticPb.GetBundleStreamResponse{Bundle: &bundle})
+				err = stream.Send(&optimsticPb.GetBidStreamResponse{Bid: &bid})
 				if err != nil {
-					log.Error("error sending bundle over stream", "err", err)
-					return status.Error(codes.Internal, shared.WrapError(err, "error sending bundle over stream").Error())
+					log.Error("error sending bid over stream", "err", err)
+					return status.Error(codes.Internal, shared.WrapError(err, "error sending bid over stream").Error())
 				}
 			}
 

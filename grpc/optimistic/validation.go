@@ -1,7 +1,7 @@
 package optimistic
 
 import (
-	optimsticPb "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/bundle/v1alpha1"
+	optimsticPb "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/auction/v1alpha1"
 	"fmt"
 )
 
