@@ -16,6 +16,8 @@ import (
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/golang/protobuf/proto"
+	proto2 "google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 	"math/big"
 	"time"
 )
@@ -133,11 +135,21 @@ func unmarshallAllocationTxs(allocation *auctionv1alpha1.Allocation, prevBlockHa
 	defer allocationUnbundlingTimer.UpdateSince(unbundlingStart)
 
 	processedTxs := types.Transactions{}
-	payload := allocation.GetPayload()
+	bid := &auctionv1alpha1.Bid{}
+
+	unprocessedBid := allocation.GetBid()
+
+	err := anypb.UnmarshalTo(unprocessedBid, bid, proto2.UnmarshalOptions{
+		Merge:        false,
+		AllowPartial: false,
+	})
+	if err != nil {
+		return nil, WrapError(err, "failed to unmarshal bid")
+	}
 
 	log.Debug("Found a potential allocation in the rollup data. Checking if it is valid.", "prevBlockHash", common.BytesToHash(prevBlockHash).String(), "auctioneerBech32Address", auctioneerBech32Address)
 
-	if !bytes.Equal(payload.GetRollupParentBlockHash(), prevBlockHash) {
+	if !bytes.Equal(bid.GetRollupParentBlockHash(), prevBlockHash) {
 		allocationsWithInvalidPrevBlockHash.Inc(1)
 		return nil, errors.New("prev block hash in allocation does not match the previous block hash")
 	}
@@ -153,7 +165,7 @@ func unmarshallAllocationTxs(allocation *auctionv1alpha1.Allocation, prevBlockHa
 		return nil, fmt.Errorf("address in allocation does not match auctioneer address. expected: %s, got: %s", auctioneerBech32Address, bech32Address)
 	}
 
-	message, err := proto.Marshal(allocation.GetPayload())
+	message, err := proto.Marshal(bid)
 	if err != nil {
 		return nil, WrapError(err, "failed to marshal allocation to verify signature")
 	}
@@ -166,7 +178,7 @@ func unmarshallAllocationTxs(allocation *auctionv1alpha1.Allocation, prevBlockHa
 
 	log.Debug("Allocation is valid. Unmarshalling the transactions in the bid.")
 	// unmarshall the transactions in the bid
-	for _, allocationTx := range payload.GetTransactions() {
+	for _, allocationTx := range bid.GetTransactions() {
 		ethtx := new(types.Transaction)
 		err := ethtx.UnmarshalBinary(allocationTx)
 		if err != nil {

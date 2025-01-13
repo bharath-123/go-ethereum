@@ -3,8 +3,8 @@ module github.com/ethereum/go-ethereum
 go 1.21
 
 require (
-	buf.build/gen/go/astria/execution-apis/grpc/go v1.5.1-00000000000000-1f40f333891d.2
-	buf.build/gen/go/astria/execution-apis/protocolbuffers/go v1.36.2-00000000000000-1f40f333891d.1
+	buf.build/gen/go/astria/execution-apis/grpc/go v1.5.1-00000000000000-42cbdd5aad4c.2
+	buf.build/gen/go/astria/execution-apis/protocolbuffers/go v1.36.2-00000000000000-42cbdd5aad4c.1
 	buf.build/gen/go/astria/primitives/protocolbuffers/go v1.36.2-00000000000000-9a039a6ed8db.1
 	buf.build/gen/go/astria/sequencerblock-apis/protocolbuffers/go v1.36.2-00000000000000-e54e1c9ad405.1
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.2.0
