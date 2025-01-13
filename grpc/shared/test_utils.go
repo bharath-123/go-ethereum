@@ -3,6 +3,7 @@ package shared
 import (
 	primitivev1 "buf.build/gen/go/astria/primitives/protocolbuffers/go/astria/primitive/v1"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"math/big"
 	"testing"
 	"time"
@@ -36,7 +37,7 @@ var (
 	testBalance = big.NewInt(2e18)
 )
 
-func GenerateMergeChain(n int, merged bool) (*core.Genesis, []*types.Block, string, *ecdsa.PrivateKey) {
+func GenerateMergeChain(n int, merged bool) (*core.Genesis, []*types.Block, string, *ecdsa.PrivateKey, ed25519.PrivateKey, ed25519.PublicKey) {
 	config := *params.AllEthashProtocolChanges
 	engine := consensus.Engine(beaconConsensus.New(ethash.NewFaker()))
 	if merged {
@@ -60,6 +61,18 @@ func GenerateMergeChain(n int, merged bool) (*core.Genesis, []*types.Block, stri
 	config.AstriaSequencerInitialHeight = 10
 	config.AstriaCelestiaInitialHeight = 10
 	config.AstriaCelestiaHeightVariance = 10
+
+	auctioneerPubKey, auctioneerPrivKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		panic(err)
+	}
+	auctioneerAddress, err := EncodeFromPublicKey(config.AstriaSequencerAddressPrefix, auctioneerPubKey)
+	if err != nil {
+		panic(err)
+	}
+
+	config.AstriaAuctioneerAddresses = make(map[uint32]string)
+	config.AstriaAuctioneerAddresses[1] = auctioneerAddress
 
 	bech32mBridgeAddress, err := bech32.EncodeM(config.AstriaSequencerAddressPrefix, bridgeAddressBytes)
 	if err != nil {
@@ -114,12 +127,14 @@ func GenerateMergeChain(n int, merged bool) (*core.Genesis, []*types.Block, stri
 		config.TerminalTotalDifficulty = totalDifficulty
 	}
 
-	return genesis, blocks, bech32mBridgeAddress, feeCollectorKey
+	return genesis, blocks, bech32mBridgeAddress, feeCollectorKey, auctioneerPrivKey, auctioneerPubKey
 }
 
 // startEthService creates a full node instance for testing.
 func StartEthService(t *testing.T, genesis *core.Genesis) *eth.Ethereum {
-	n, err := node.New(&node.Config{})
+	n, err := node.New(&node.Config{
+		EnableAuctioneer: true,
+	})
 	require.Nil(t, err, "can't create node")
 	mcfg := miner.DefaultConfig
 	mcfg.PendingFeeRecipient = TestAddr

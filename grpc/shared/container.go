@@ -1,14 +1,15 @@
 package shared
 
 import (
-	"errors"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/eth"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/pkg/errors"
 	"sync"
+	"sync/atomic"
 )
 
 type SharedServiceContainer struct {
@@ -24,8 +25,10 @@ type SharedServiceContainer struct {
 	bridgeAddresses     map[string]*params.AstriaBridgeAddressConfig // astria bridge addess to config for that bridge account
 	bridgeAllowedAssets map[string]struct{}                          // a set of allowed asset IDs structs are left empty
 
-	// TODO: bharath - we could make this an atomic pointer???
-	nextFeeRecipient common.Address // Fee recipient for the next block
+	// auctioneer address is a bech32m address
+	auctioneerAddress atomic.Pointer[string]
+
+	nextFeeRecipient atomic.Pointer[common.Address] // Fee recipient for the next block
 }
 
 func NewSharedServiceContainer(eth *eth.Ethereum) (*SharedServiceContainer, error) {
@@ -84,11 +87,11 @@ func NewSharedServiceContainer(eth *eth.Ethereum) (*SharedServiceContainer, erro
 	// To decrease compute cost, we identify the next fee recipient at the start
 	// and update it as we execute blocks.
 	nextFeeRecipient := common.Address{}
+	nextBlock := uint32(bc.CurrentBlock().Number.Int64()) + 1
 	if bc.Config().AstriaFeeCollectors == nil {
 		log.Warn("fee asset collectors not set, assets will be burned")
 	} else {
 		maxHeightCollectorMatch := uint32(0)
-		nextBlock := uint32(bc.CurrentBlock().Number.Int64()) + 1
 		for height, collector := range bc.Config().AstriaFeeCollectors {
 			if height <= nextBlock && height > maxHeightCollectorMatch {
 				maxHeightCollectorMatch = height
@@ -96,13 +99,33 @@ func NewSharedServiceContainer(eth *eth.Ethereum) (*SharedServiceContainer, erro
 			}
 		}
 	}
+
+	auctioneerAddressesBlockMap := bc.Config().AstriaAuctioneerAddresses
+	auctioneerAddress := ""
+	if auctioneerAddressesBlockMap == nil {
+		return nil, errors.New("auctioneer addresses not set")
+	} else {
+		maxHeightCollectorMatch := uint32(0)
+		for height, address := range auctioneerAddressesBlockMap {
+			if height <= nextBlock && height > maxHeightCollectorMatch {
+				maxHeightCollectorMatch = height
+				if err := ValidateBech32mAddress(address, bc.Config().AstriaSequencerAddressPrefix); err != nil {
+					return nil, errors.Wrapf(err, "auctioneer address %s at height %d is invalid", address, height)
+				}
+				auctioneerAddress = address
+			}
+		}
+	}
+
 	sharedServiceContainer := &SharedServiceContainer{
 		eth:                 eth,
 		bc:                  bc,
 		bridgeAddresses:     bridgeAddresses,
 		bridgeAllowedAssets: bridgeAllowedAssets,
-		nextFeeRecipient:    nextFeeRecipient,
 	}
+
+	sharedServiceContainer.SetAuctioneerAddress(auctioneerAddress)
+	sharedServiceContainer.SetNextFeeRecipient(nextFeeRecipient)
 
 	return sharedServiceContainer, nil
 }
@@ -144,12 +167,12 @@ func (s *SharedServiceContainer) BlockExecutionLock() *sync.Mutex {
 }
 
 func (s *SharedServiceContainer) NextFeeRecipient() common.Address {
-	return s.nextFeeRecipient
+	return *s.nextFeeRecipient.Load()
 }
 
 // assumes that the block execution lock is being held
 func (s *SharedServiceContainer) SetNextFeeRecipient(nextFeeRecipient common.Address) {
-	s.nextFeeRecipient = nextFeeRecipient
+	s.nextFeeRecipient.Store(&nextFeeRecipient)
 }
 
 func (s *SharedServiceContainer) BridgeAddresses() map[string]*params.AstriaBridgeAddressConfig {
@@ -158,4 +181,12 @@ func (s *SharedServiceContainer) BridgeAddresses() map[string]*params.AstriaBrid
 
 func (s *SharedServiceContainer) BridgeAllowedAssets() map[string]struct{} {
 	return s.bridgeAllowedAssets
+}
+
+func (s *SharedServiceContainer) AuctioneerAddress() string {
+	return *s.auctioneerAddress.Load()
+}
+
+func (s *SharedServiceContainer) SetAuctioneerAddress(newAddress string) {
+	s.auctioneerAddress.Store(&newAddress)
 }

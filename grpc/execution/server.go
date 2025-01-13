@@ -100,7 +100,7 @@ func (s *ExecutionServiceServerV1) GetBlock(ctx context.Context, req *astriaPb.G
 	res, err := s.getBlockFromIdentifier(req.GetIdentifier())
 	if err != nil {
 		log.Error("failed finding block", err)
-		return nil, err
+		return nil, shared.WrapError(err, "failed finding block")
 	}
 
 	log.Debug("GetBlock completed", "request", req, "response", res)
@@ -125,7 +125,7 @@ func (s *ExecutionServiceServerV1) BatchGetBlocks(ctx context.Context, req *astr
 		block, err := s.getBlockFromIdentifier(id)
 		if err != nil {
 			log.Error("failed finding block with id", id, "error", err)
-			return nil, err
+			return nil, shared.WrapError(err, fmt.Sprintf("failed finding block with id %s", id.String()))
 		}
 
 		blocks = append(blocks, block)
@@ -170,15 +170,9 @@ func (s *ExecutionServiceServerV1) ExecuteBlock(ctx context.Context, req *astria
 	// the height that this block will be at
 	height := s.Bc().CurrentBlock().Number.Uint64() + 1
 
-	txsToProcess := types.Transactions{}
-	for _, tx := range req.Transactions {
-		unmarshalledTx, err := shared.ValidateAndUnmarshalSequencerTx(height, tx, s.BridgeAddresses(), s.BridgeAllowedAssets())
-		if err != nil {
-			log.Debug("failed to validate sequencer tx, ignoring", "tx", tx, "err", err)
-			continue
-		}
-		txsToProcess = append(txsToProcess, unmarshalledTx)
-	}
+	addressPrefix := s.Bc().Config().AstriaSequencerAddressPrefix
+
+	txsToProcess := shared.UnbundleRollupDataTransactions(req.Transactions, height, s.BridgeAddresses(), s.BridgeAllowedAssets(), prevHeadHash.Bytes(), s.AuctioneerAddress(), addressPrefix)
 
 	// This set of ordered TXs on the TxPool is has been configured to be used by
 	// the Miner when building a payload.
@@ -196,7 +190,7 @@ func (s *ExecutionServiceServerV1) ExecuteBlock(ctx context.Context, req *astria
 	payload, err := s.Eth().Miner().BuildPayload(payloadAttributes)
 	if err != nil {
 		log.Error("failed to build payload", "err", err)
-		return nil, status.Error(codes.InvalidArgument, "Could not build block with provided txs")
+		return nil, status.Errorf(codes.InvalidArgument, shared.WrapError(err, "Could not build block with provided txs").Error())
 	}
 
 	// call blockchain.InsertChain to actually execute and write the blocks to
@@ -204,12 +198,12 @@ func (s *ExecutionServiceServerV1) ExecuteBlock(ctx context.Context, req *astria
 	block, err := engine.ExecutableDataToBlock(*payload.Resolve().ExecutionPayload, nil, nil)
 	if err != nil {
 		log.Error("failed to convert executable data to block", err)
-		return nil, status.Error(codes.Internal, "failed to execute block")
+		return nil, status.Error(codes.Internal, shared.WrapError(err, "failed to convert executable data to block").Error())
 	}
 	err = s.Bc().InsertBlockWithoutSetHead(block)
 	if err != nil {
 		log.Error("failed to insert block to chain", "hash", block.Hash(), "prevHash", req.PrevBlockHash, "err", err)
-		return nil, status.Error(codes.Internal, "failed to insert block to chain")
+		return nil, status.Error(codes.Internal, shared.WrapError(err, "failed to insert block to chain").Error())
 	}
 
 	// remove txs from original mempool
@@ -228,6 +222,14 @@ func (s *ExecutionServiceServerV1) ExecuteBlock(ctx context.Context, req *astria
 		s.SetNextFeeRecipient(next)
 	}
 
+	if address, ok := s.Bc().Config().AstriaAuctioneerAddresses[res.Number+1]; ok {
+		if err := shared.ValidateBech32mAddress(address, addressPrefix); err != nil {
+			log.Error("auctioneer address is not a valid bech32 address", "block", res.Number+1, "address", address)
+		}
+
+		s.SetAuctioneerAddress(address)
+	}
+
 	log.Info("ExecuteBlock completed", "block_num", res.Number, "timestamp", res.Timestamp)
 	totalExecutedTxCount.Inc(int64(len(block.Transactions())))
 	executeBlockSuccessCount.Inc(1)
@@ -242,12 +244,12 @@ func (s *ExecutionServiceServerV1) GetCommitmentState(ctx context.Context, req *
 	softBlock, err := ethHeaderToExecutionBlock(s.Bc().CurrentSafeBlock())
 	if err != nil {
 		log.Error("error finding safe block", err)
-		return nil, status.Error(codes.Internal, "could not locate soft block")
+		return nil, status.Error(codes.Internal, shared.WrapError(err, "could not locate soft block").Error())
 	}
 	firmBlock, err := ethHeaderToExecutionBlock(s.Bc().CurrentFinalBlock())
 	if err != nil {
 		log.Error("error finding final block", err)
-		return nil, status.Error(codes.Internal, "could not locate firm block")
+		return nil, status.Error(codes.Internal, shared.WrapError(err, "could not locate firm block").Error())
 	}
 
 	celestiaBlock := s.Bc().CurrentBaseCelestiaHeight()
@@ -310,7 +312,7 @@ func (s *ExecutionServiceServerV1) UpdateCommitmentState(ctx context.Context, re
 	if currentHead != softEthHash {
 		if _, err := s.Bc().SetCanonical(softBlock); err != nil {
 			log.Error("failed updating canonical chain to soft block", err)
-			return nil, status.Error(codes.Internal, "Could not update head to safe hash")
+			return nil, status.Error(codes.Internal, shared.WrapError(err, "Could not update head to safe hash").Error())
 		}
 	}
 
@@ -366,7 +368,7 @@ func (s *ExecutionServiceServerV1) getBlockFromIdentifier(identifier *astriaPb.B
 	res, err := ethHeaderToExecutionBlock(header)
 	if err != nil {
 		// This should never happen since we validate header exists above.
-		return nil, status.Error(codes.Internal, "internal error")
+		return nil, status.Error(codes.Internal, shared.WrapError(err, "internal error").Error())
 	}
 
 	return res, nil
@@ -437,4 +439,12 @@ func (s *ExecutionServiceServerV1) BridgeAllowedAssets() map[string]struct{} {
 
 func (s *ExecutionServiceServerV1) SyncMethodsCalled() bool {
 	return s.sharedServiceContainer.SyncMethodsCalled()
+}
+
+func (s *ExecutionServiceServerV1) AuctioneerAddress() string {
+	return s.sharedServiceContainer.AuctioneerAddress()
+}
+
+func (s *ExecutionServiceServerV1) SetAuctioneerAddress(auctioneerAddress string) {
+	s.sharedServiceContainer.SetAuctioneerAddress(auctioneerAddress)
 }
