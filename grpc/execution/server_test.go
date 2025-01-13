@@ -1,7 +1,6 @@
 package execution
 
 import (
-	optimsticPb "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/bundle/v1alpha1"
 	astriaPb "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/execution/v1"
 	primitivev1 "buf.build/gen/go/astria/primitives/protocolbuffers/go/astria/primitive/v1"
 	sequencerblockv1 "buf.build/gen/go/astria/sequencerblock-apis/protocolbuffers/go/astria/sequencerblock/v1"
@@ -9,9 +8,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/grpc/shared"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
@@ -20,13 +19,13 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"math/big"
 	"testing"
-	"time"
 )
 
-func TestExecutionService_GetGenesisInfo(t *testing.T) {
-	ethservice, serviceV1Alpha1 := setupExecutionService(t, 10)
+func TestExecutionServiceV1_GetGenesisInfo(t *testing.T) {
+	ethservice, sharedServiceContainer, _, _ := shared.SetupSharedService(t, 10)
+	serviceV1 := SetupExecutionService(t, sharedServiceContainer)
 
-	genesisInfo, err := serviceV1Alpha1.GetGenesisInfo(context.Background(), &astriaPb.GetGenesisInfoRequest{})
+	genesisInfo, err := serviceV1.GetGenesisInfo(context.Background(), &astriaPb.GetGenesisInfoRequest{})
 	require.Nil(t, err, "GetGenesisInfo failed")
 
 	hashedRollupId := sha256.Sum256([]byte(ethservice.BlockChain().Config().AstriaRollupName))
@@ -34,13 +33,14 @@ func TestExecutionService_GetGenesisInfo(t *testing.T) {
 	require.True(t, bytes.Equal(genesisInfo.RollupId.Inner, hashedRollupId[:]), "RollupId is not correct")
 	require.Equal(t, genesisInfo.GetSequencerGenesisBlockHeight(), ethservice.BlockChain().Config().AstriaSequencerInitialHeight, "SequencerInitialHeight is not correct")
 	require.Equal(t, genesisInfo.GetCelestiaBlockVariance(), ethservice.BlockChain().Config().AstriaCelestiaHeightVariance, "CelestiaHeightVariance is not correct")
-	require.True(t, serviceV1Alpha1.genesisInfoCalled, "GetGenesisInfo should be called")
+	require.True(t, serviceV1.sharedServiceContainer.GenesisInfoCalled(), "GetGenesisInfo should be called")
 }
 
-func TestExecutionServiceServerV1Alpha2_GetCommitmentState(t *testing.T) {
-	ethservice, serviceV1Alpha1 := setupExecutionService(t, 10)
+func TestExecutionServiceServerV1_GetCommitmentState(t *testing.T) {
+	ethservice, sharedServiceContainer, _, _ := shared.SetupSharedService(t, 10)
+	serviceV1 := SetupExecutionService(t, sharedServiceContainer)
 
-	commitmentState, err := serviceV1Alpha1.GetCommitmentState(context.Background(), &astriaPb.GetCommitmentStateRequest{})
+	commitmentState, err := serviceV1.GetCommitmentState(context.Background(), &astriaPb.GetCommitmentStateRequest{})
 	require.Nil(t, err, "GetCommitmentState failed")
 
 	require.NotNil(t, commitmentState, "CommitmentState is nil")
@@ -60,11 +60,12 @@ func TestExecutionServiceServerV1Alpha2_GetCommitmentState(t *testing.T) {
 	require.Equal(t, uint64(commitmentState.Firm.Number), firmBlock.Number.Uint64(), "Firm Block Number do not match")
 	require.Equal(t, commitmentState.BaseCelestiaHeight, ethservice.BlockChain().Config().AstriaCelestiaInitialHeight, "BaseCelestiaHeight is not correct")
 
-	require.True(t, serviceV1Alpha1.getCommitmentStateCalled, "GetCommitmentState should be called")
+	require.True(t, serviceV1.sharedServiceContainer.CommitmentStateCalled(), "GetCommitmentState should be called")
 }
 
-func TestExecutionService_GetBlock(t *testing.T) {
-	ethservice, serviceV1Alpha1 := setupExecutionService(t, 10)
+func TestExecutionServiceV1_GetBlock(t *testing.T) {
+	ethservice, sharedServiceContainer, _, _ := shared.SetupSharedService(t, 10)
+	serviceV1 := SetupExecutionService(t, sharedServiceContainer)
 
 	tests := []struct {
 		description        string
@@ -96,7 +97,7 @@ func TestExecutionService_GetBlock(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.description, func(t *testing.T) {
-			blockInfo, err := serviceV1Alpha1.GetBlock(context.Background(), tt.getBlockRequst)
+			blockInfo, err := serviceV1.GetBlock(context.Background(), tt.getBlockRequst)
 			if tt.expectedReturnCode > 0 {
 				require.NotNil(t, err, "GetBlock should return an error")
 				require.Equal(t, tt.expectedReturnCode, status.Code(err), "GetBlock failed")
@@ -122,8 +123,9 @@ func TestExecutionService_GetBlock(t *testing.T) {
 	}
 }
 
-func TestExecutionServiceServerV1Alpha2_BatchGetBlocks(t *testing.T) {
-	ethservice, serviceV1Alpha1 := setupExecutionService(t, 10)
+func TestExecutionServiceServerV1_BatchGetBlocks(t *testing.T) {
+	ethservice, sharedServiceContainer, _, _ := shared.SetupSharedService(t, 10)
+	serviceV1 := SetupExecutionService(t, sharedServiceContainer)
 
 	tests := []struct {
 		description          string
@@ -173,7 +175,7 @@ func TestExecutionServiceServerV1Alpha2_BatchGetBlocks(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.description, func(t *testing.T) {
-			batchBlocksRes, err := serviceV1Alpha1.BatchGetBlocks(context.Background(), tt.batchGetBlockRequest)
+			batchBlocksRes, err := serviceV1.BatchGetBlocks(context.Background(), tt.batchGetBlockRequest)
 			if tt.expectedReturnCode > 0 {
 				require.NotNil(t, err, "BatchGetBlocks should return an error")
 				require.Equal(t, tt.expectedReturnCode, status.Code(err), "BatchGetBlocks failed")
@@ -193,181 +195,8 @@ func TestExecutionServiceServerV1Alpha2_BatchGetBlocks(t *testing.T) {
 	}
 }
 
-func bigIntToProtoU128(i *big.Int) *primitivev1.Uint128 {
-	lo := i.Uint64()
-	hi := new(big.Int).Rsh(i, 64).Uint64()
-	return &primitivev1.Uint128{Lo: lo, Hi: hi}
-}
-
-func TestExecutionServiceServerV1Alpha2_ExecuteOptimisticBlock(t *testing.T) {
-	ethservice, _ := setupExecutionService(t, 10)
-
-	tests := []struct {
-		description                          string
-		callGenesisInfoAndGetCommitmentState bool
-		numberOfTxs                          int
-		prevBlockHash                        []byte
-		timestamp                            uint64
-		depositTxAmount                      *big.Int // if this is non zero then we send a deposit tx
-		expectedReturnCode                   codes.Code
-	}{
-		{
-			description:                          "ExecuteOptimisticBlock without calling GetGenesisInfo and GetCommitmentState",
-			callGenesisInfoAndGetCommitmentState: false,
-			numberOfTxs:                          5,
-			prevBlockHash:                        ethservice.BlockChain().GetBlockByNumber(2).Hash().Bytes(),
-			timestamp:                            ethservice.BlockChain().GetBlockByNumber(2).Time() + 2,
-			depositTxAmount:                      big.NewInt(0),
-			expectedReturnCode:                   codes.PermissionDenied,
-		},
-		{
-			description:                          "ExecuteOptimisticBlock with 5 txs and no deposit tx",
-			callGenesisInfoAndGetCommitmentState: true,
-			numberOfTxs:                          5,
-			prevBlockHash:                        ethservice.BlockChain().CurrentSafeBlock().Hash().Bytes(),
-			timestamp:                            ethservice.BlockChain().CurrentSafeBlock().Time + 2,
-			depositTxAmount:                      big.NewInt(0),
-			expectedReturnCode:                   0,
-		},
-		{
-			description:                          "ExecuteOptimisticBlock with 5 txs and a deposit tx",
-			callGenesisInfoAndGetCommitmentState: true,
-			numberOfTxs:                          5,
-			prevBlockHash:                        ethservice.BlockChain().CurrentSafeBlock().Hash().Bytes(),
-			timestamp:                            ethservice.BlockChain().CurrentSafeBlock().Time + 2,
-			depositTxAmount:                      big.NewInt(1000000000000000000),
-			expectedReturnCode:                   0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.description, func(t *testing.T) {
-			// reset the blockchain with each test
-			ethservice, serviceV1Alpha1 := setupExecutionService(t, 10)
-
-			var err error // adding this to prevent shadowing of genesisInfo in the below if branch
-			var genesisInfo *astriaPb.GenesisInfo
-			var commitmentStateBeforeExecuteBlock *astriaPb.CommitmentState
-			if tt.callGenesisInfoAndGetCommitmentState {
-				// call getGenesisInfo and getCommitmentState before calling executeBlock
-				genesisInfo, err = serviceV1Alpha1.GetGenesisInfo(context.Background(), &astriaPb.GetGenesisInfoRequest{})
-				require.Nil(t, err, "GetGenesisInfo failed")
-				require.NotNil(t, genesisInfo, "GenesisInfo is nil")
-
-				commitmentStateBeforeExecuteBlock, err = serviceV1Alpha1.GetCommitmentState(context.Background(), &astriaPb.GetCommitmentStateRequest{})
-				require.Nil(t, err, "GetCommitmentState failed")
-				require.NotNil(t, commitmentStateBeforeExecuteBlock, "CommitmentState is nil")
-			}
-
-			// create the txs to send
-			// create 5 txs
-			txs := []*types.Transaction{}
-			marshalledTxs := []*sequencerblockv1.RollupData{}
-			for i := 0; i < 5; i++ {
-				unsignedTx := types.NewTransaction(uint64(i), testToAddress, big.NewInt(1), params.TxGas, big.NewInt(params.InitialBaseFee*2), nil)
-				tx, err := types.SignTx(unsignedTx, types.LatestSigner(ethservice.BlockChain().Config()), testKey)
-				require.Nil(t, err, "Failed to sign tx")
-				txs = append(txs, tx)
-
-				marshalledTx, err := tx.MarshalBinary()
-				require.Nil(t, err, "Failed to marshal tx")
-				marshalledTxs = append(marshalledTxs, &sequencerblockv1.RollupData{
-					Value: &sequencerblockv1.RollupData_SequencedData{SequencedData: marshalledTx},
-				})
-			}
-
-			// create deposit tx if depositTxAmount is non zero
-			if tt.depositTxAmount.Cmp(big.NewInt(0)) != 0 {
-				depositAmount := bigIntToProtoU128(tt.depositTxAmount)
-				bridgeAddress := ethservice.BlockChain().Config().AstriaBridgeAddressConfigs[0].BridgeAddress
-				bridgeAssetDenom := ethservice.BlockChain().Config().AstriaBridgeAddressConfigs[0].AssetDenom
-
-				// create new chain destination address for better testing
-				chainDestinationAddressPrivKey, err := crypto.GenerateKey()
-				require.Nil(t, err, "Failed to generate chain destination address")
-
-				chainDestinationAddress := crypto.PubkeyToAddress(chainDestinationAddressPrivKey.PublicKey)
-
-				depositTx := &sequencerblockv1.RollupData{Value: &sequencerblockv1.RollupData_Deposit{Deposit: &sequencerblockv1.Deposit{
-					BridgeAddress: &primitivev1.Address{
-						Bech32M: bridgeAddress,
-					},
-					Asset:                   bridgeAssetDenom,
-					Amount:                  depositAmount,
-					RollupId:                genesisInfo.RollupId,
-					DestinationChainAddress: chainDestinationAddress.String(),
-					SourceTransactionId: &primitivev1.TransactionId{
-						Inner: "test_tx_hash",
-					},
-					SourceActionIndex: 0,
-				}}}
-
-				marshalledTxs = append(marshalledTxs, depositTx)
-			}
-
-			optimisticHeadCh := make(chan core.ChainOptimisticHeadEvent, 1)
-			optimsticHeadSub := ethservice.BlockChain().SubscribeChainOptimisticHeadEvent(optimisticHeadCh)
-			defer optimsticHeadSub.Unsubscribe()
-
-			baseBlockReq := &optimsticPb.BaseBlock{
-				Timestamp: &timestamppb.Timestamp{
-					Seconds: int64(tt.timestamp),
-				},
-				Transactions:       marshalledTxs,
-				SequencerBlockHash: []byte("test_hash"),
-			}
-
-			res, err := serviceV1Alpha1.ExecuteOptimisticBlock(context.Background(), baseBlockReq)
-			if tt.expectedReturnCode > 0 {
-				require.NotNil(t, err, "ExecuteOptimisticBlock should return an error")
-				require.Equal(t, tt.expectedReturnCode, status.Code(err), "ExecuteOptimisticBlock failed")
-			} else {
-				require.Nil(t, err, "ExecuteOptimisticBlock failed")
-			}
-			if err == nil {
-				require.NotNil(t, res, "ExecuteOptimisticBlock response is nil")
-
-				astriaOrdered := ethservice.TxPool().AstriaOrdered()
-				require.Equal(t, 0, astriaOrdered.Len(), "AstriaOrdered should be empty")
-
-				// check if commitment state is not updated
-				commitmentStateAfterExecuteBlock, err := serviceV1Alpha1.GetCommitmentState(context.Background(), &astriaPb.GetCommitmentStateRequest{})
-				require.Nil(t, err, "GetCommitmentState failed")
-
-				require.Exactly(t, commitmentStateBeforeExecuteBlock, commitmentStateAfterExecuteBlock, "Commitment state should not be updated")
-
-				// check if the optimistic block is set
-				optimisticBlock := ethservice.BlockChain().CurrentOptimisticBlock()
-				require.NotNil(t, optimisticBlock, "Optimistic block is not set")
-
-				// check if the optimistic block is correct
-				require.Equal(t, common.BytesToHash(res.Hash), optimisticBlock.Hash(), "Optimistic block hashes do not match")
-				require.Equal(t, common.BytesToHash(res.ParentBlockHash), optimisticBlock.ParentHash, "Optimistic block parent hashes do not match")
-				require.Equal(t, uint64(res.Number), optimisticBlock.Number.Uint64(), "Optimistic block numbers do not match")
-
-				// check if optimistic block is inserted into chain
-				block := ethservice.BlockChain().GetBlockByHash(optimisticBlock.Hash())
-				require.NotNil(t, block, "Optimistic block not found in blockchain")
-				require.Equal(t, uint64(res.Number), block.NumberU64(), "Block number is not correct")
-
-				// timeout for optimistic head event
-				select {
-				case blockEvent := <-optimisticHeadCh:
-					require.NotNil(t, blockEvent, "Optimistic head event not received")
-					require.Equal(t, block.Hash(), blockEvent.Block.Hash(), "Optimistic head event block hash is not correct")
-					require.Equal(t, block.NumberU64(), blockEvent.Block.NumberU64(), "Optimistic head event block number is not correct")
-				case <-time.After(2 * time.Second):
-					require.FailNow(t, "Optimistic head event not received")
-				case err := <-optimsticHeadSub.Err():
-					require.Nil(t, err, "Optimistic head event subscription failed")
-				}
-			}
-		})
-	}
-}
-
-func TestExecutionServiceServerV1Alpha2_ExecuteBlock(t *testing.T) {
-	ethservice, _ := setupExecutionService(t, 10)
+func TestExecutionServiceServerV1_ExecuteBlock(t *testing.T) {
+	ethservice, _, _, _ := shared.SetupSharedService(t, 10)
 
 	tests := []struct {
 		description                          string
@@ -419,18 +248,19 @@ func TestExecutionServiceServerV1Alpha2_ExecuteBlock(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.description, func(t *testing.T) {
 			// reset the blockchain with each test
-			ethservice, serviceV1Alpha1 := setupExecutionService(t, 10)
+			ethservice, sharedServiceContainer, _, _ := shared.SetupSharedService(t, 10)
+			serviceV1 := SetupExecutionService(t, sharedServiceContainer)
 
 			var err error // adding this to prevent shadowing of genesisInfo in the below if branch
 			var genesisInfo *astriaPb.GenesisInfo
 			var commitmentStateBeforeExecuteBlock *astriaPb.CommitmentState
 			if tt.callGenesisInfoAndGetCommitmentState {
 				// call getGenesisInfo and getCommitmentState before calling executeBlock
-				genesisInfo, err = serviceV1Alpha1.GetGenesisInfo(context.Background(), &astriaPb.GetGenesisInfoRequest{})
+				genesisInfo, err = serviceV1.GetGenesisInfo(context.Background(), &astriaPb.GetGenesisInfoRequest{})
 				require.Nil(t, err, "GetGenesisInfo failed")
 				require.NotNil(t, genesisInfo, "GenesisInfo is nil")
 
-				commitmentStateBeforeExecuteBlock, err = serviceV1Alpha1.GetCommitmentState(context.Background(), &astriaPb.GetCommitmentStateRequest{})
+				commitmentStateBeforeExecuteBlock, err = serviceV1.GetCommitmentState(context.Background(), &astriaPb.GetCommitmentStateRequest{})
 				require.Nil(t, err, "GetCommitmentState failed")
 				require.NotNil(t, commitmentStateBeforeExecuteBlock, "CommitmentState is nil")
 			}
@@ -440,8 +270,8 @@ func TestExecutionServiceServerV1Alpha2_ExecuteBlock(t *testing.T) {
 			txs := []*types.Transaction{}
 			marshalledTxs := []*sequencerblockv1.RollupData{}
 			for i := 0; i < 5; i++ {
-				unsignedTx := types.NewTransaction(uint64(i), testToAddress, big.NewInt(1), params.TxGas, big.NewInt(params.InitialBaseFee*2), nil)
-				tx, err := types.SignTx(unsignedTx, types.LatestSigner(ethservice.BlockChain().Config()), testKey)
+				unsignedTx := types.NewTransaction(uint64(i), shared.TestToAddress, big.NewInt(1), params.TxGas, big.NewInt(params.InitialBaseFee*2), nil)
+				tx, err := types.SignTx(unsignedTx, types.LatestSigner(ethservice.BlockChain().Config()), shared.TestKey)
 				require.Nil(t, err, "Failed to sign tx")
 				txs = append(txs, tx)
 
@@ -454,7 +284,7 @@ func TestExecutionServiceServerV1Alpha2_ExecuteBlock(t *testing.T) {
 
 			// create deposit tx if depositTxAmount is non zero
 			if tt.depositTxAmount.Cmp(big.NewInt(0)) != 0 {
-				depositAmount := bigIntToProtoU128(tt.depositTxAmount)
+				depositAmount := shared.BigIntToProtoU128(tt.depositTxAmount)
 				bridgeAddress := ethservice.BlockChain().Config().AstriaBridgeAddressConfigs[0].BridgeAddress
 				bridgeAssetDenom := ethservice.BlockChain().Config().AstriaBridgeAddressConfigs[0].AssetDenom
 
@@ -489,7 +319,7 @@ func TestExecutionServiceServerV1Alpha2_ExecuteBlock(t *testing.T) {
 				Transactions: marshalledTxs,
 			}
 
-			executeBlockRes, err := serviceV1Alpha1.ExecuteBlock(context.Background(), executeBlockReq)
+			executeBlockRes, err := serviceV1.ExecuteBlock(context.Background(), executeBlockReq)
 			if tt.expectedReturnCode > 0 {
 				require.NotNil(t, err, "ExecuteBlock should return an error")
 				require.Equal(t, tt.expectedReturnCode, status.Code(err), "ExecuteBlock failed")
@@ -501,7 +331,7 @@ func TestExecutionServiceServerV1Alpha2_ExecuteBlock(t *testing.T) {
 				require.Equal(t, 0, astriaOrdered.Len(), "AstriaOrdered should be empty")
 
 				// check if commitment state is not updated
-				commitmentStateAfterExecuteBlock, err := serviceV1Alpha1.GetCommitmentState(context.Background(), &astriaPb.GetCommitmentStateRequest{})
+				commitmentStateAfterExecuteBlock, err := serviceV1.GetCommitmentState(context.Background(), &astriaPb.GetCommitmentStateRequest{})
 				require.Nil(t, err, "GetCommitmentState failed")
 
 				require.Exactly(t, commitmentStateBeforeExecuteBlock, commitmentStateAfterExecuteBlock, "Commitment state should not be updated")
@@ -511,16 +341,17 @@ func TestExecutionServiceServerV1Alpha2_ExecuteBlock(t *testing.T) {
 	}
 }
 
-func TestExecutionServiceServerV1Alpha2_ExecuteBlockAndUpdateCommitment(t *testing.T) {
-	ethservice, serviceV1Alpha1 := setupExecutionService(t, 10)
+func TestExecutionServiceServerV1_ExecuteBlockAndUpdateCommitment(t *testing.T) {
+	ethservice, sharedServiceContainer, _, _ := shared.SetupSharedService(t, 10)
+	serviceV1 := SetupExecutionService(t, sharedServiceContainer)
 
 	// call genesis info
-	genesisInfo, err := serviceV1Alpha1.GetGenesisInfo(context.Background(), &astriaPb.GetGenesisInfoRequest{})
+	genesisInfo, err := serviceV1.GetGenesisInfo(context.Background(), &astriaPb.GetGenesisInfoRequest{})
 	require.Nil(t, err, "GetGenesisInfo failed")
 	require.NotNil(t, genesisInfo, "GenesisInfo is nil")
 
 	// call get commitment state
-	commitmentState, err := serviceV1Alpha1.GetCommitmentState(context.Background(), &astriaPb.GetCommitmentStateRequest{})
+	commitmentState, err := serviceV1.GetCommitmentState(context.Background(), &astriaPb.GetCommitmentStateRequest{})
 	require.Nil(t, err, "GetCommitmentState failed")
 	require.NotNil(t, commitmentState, "CommitmentState is nil")
 
@@ -532,8 +363,8 @@ func TestExecutionServiceServerV1Alpha2_ExecuteBlockAndUpdateCommitment(t *testi
 	txs := []*types.Transaction{}
 	marshalledTxs := []*sequencerblockv1.RollupData{}
 	for i := 0; i < 5; i++ {
-		unsignedTx := types.NewTransaction(uint64(i), testToAddress, big.NewInt(1), params.TxGas, big.NewInt(params.InitialBaseFee*2), nil)
-		tx, err := types.SignTx(unsignedTx, types.LatestSigner(ethservice.BlockChain().Config()), testKey)
+		unsignedTx := types.NewTransaction(uint64(i), shared.TestToAddress, big.NewInt(1), params.TxGas, big.NewInt(params.InitialBaseFee*2), nil)
+		tx, err := types.SignTx(unsignedTx, types.LatestSigner(ethservice.BlockChain().Config()), shared.TestKey)
 		require.Nil(t, err, "Failed to sign tx")
 		txs = append(txs, tx)
 
@@ -545,7 +376,7 @@ func TestExecutionServiceServerV1Alpha2_ExecuteBlockAndUpdateCommitment(t *testi
 	}
 
 	amountToDeposit := big.NewInt(1000000000000000000)
-	depositAmount := bigIntToProtoU128(amountToDeposit)
+	depositAmount := shared.BigIntToProtoU128(amountToDeposit)
 	bridgeAddress := ethservice.BlockChain().Config().AstriaBridgeAddressConfigs[0].BridgeAddress
 	bridgeAssetDenom := ethservice.BlockChain().Config().AstriaBridgeAddressConfigs[0].AssetDenom
 
@@ -585,7 +416,7 @@ func TestExecutionServiceServerV1Alpha2_ExecuteBlockAndUpdateCommitment(t *testi
 		Transactions: marshalledTxs,
 	}
 
-	executeBlockRes, err := serviceV1Alpha1.ExecuteBlock(context.Background(), executeBlockReq)
+	executeBlockRes, err := serviceV1.ExecuteBlock(context.Background(), executeBlockReq)
 	require.Nil(t, err, "ExecuteBlock failed")
 
 	require.NotNil(t, executeBlockRes, "ExecuteBlock response is nil")
@@ -613,7 +444,7 @@ func TestExecutionServiceServerV1Alpha2_ExecuteBlockAndUpdateCommitment(t *testi
 		},
 	}
 
-	updateCommitmentStateRes, err := serviceV1Alpha1.UpdateCommitmentState(context.Background(), updateCommitmentStateReq)
+	updateCommitmentStateRes, err := serviceV1.UpdateCommitmentState(context.Background(), updateCommitmentStateReq)
 	require.Nil(t, err, "UpdateCommitmentState failed")
 	require.NotNil(t, updateCommitmentStateRes, "UpdateCommitmentState response should not be nil")
 	require.Equal(t, updateCommitmentStateRes, updateCommitmentStateReq.CommitmentState, "CommitmentState response should match request")
@@ -647,16 +478,17 @@ func TestExecutionServiceServerV1Alpha2_ExecuteBlockAndUpdateCommitment(t *testi
 }
 
 // Check that invalid transactions are not added into a block and are removed from the mempool
-func TestExecutionServiceServerV1Alpha2_ExecuteBlockAndUpdateCommitmentWithInvalidTransactions(t *testing.T) {
-	ethservice, serviceV1Alpha1 := setupExecutionService(t, 10)
+func TestExecutionServiceServerV1_ExecuteBlockAndUpdateCommitmentWithInvalidTransactions(t *testing.T) {
+	ethservice, sharedServiceContainer, _, _ := shared.SetupSharedService(t, 10)
+	serviceV1 := SetupExecutionService(t, sharedServiceContainer)
 
 	// call genesis info
-	genesisInfo, err := serviceV1Alpha1.GetGenesisInfo(context.Background(), &astriaPb.GetGenesisInfoRequest{})
+	genesisInfo, err := serviceV1.GetGenesisInfo(context.Background(), &astriaPb.GetGenesisInfoRequest{})
 	require.Nil(t, err, "GetGenesisInfo failed")
 	require.NotNil(t, genesisInfo, "GenesisInfo is nil")
 
 	// call get commitment state
-	commitmentState, err := serviceV1Alpha1.GetCommitmentState(context.Background(), &astriaPb.GetCommitmentStateRequest{})
+	commitmentState, err := serviceV1.GetCommitmentState(context.Background(), &astriaPb.GetCommitmentStateRequest{})
 	require.Nil(t, err, "GetCommitmentState failed")
 	require.NotNil(t, commitmentState, "CommitmentState is nil")
 
@@ -671,14 +503,14 @@ func TestExecutionServiceServerV1Alpha2_ExecuteBlockAndUpdateCommitmentWithInval
 	stateDb, err := ethservice.BlockChain().StateAt(previousBlock.Root())
 	require.Nil(t, err, "Failed to get state db")
 
-	latestNonce := stateDb.GetNonce(testAddr)
+	latestNonce := stateDb.GetNonce(shared.TestAddr)
 
 	// create 5 txs
 	txs := []*types.Transaction{}
 	marshalledTxs := []*sequencerblockv1.RollupData{}
 	for i := 0; i < 5; i++ {
-		unsignedTx := types.NewTransaction(latestNonce+uint64(i), testToAddress, big.NewInt(1), params.TxGas, big.NewInt(params.InitialBaseFee*2), nil)
-		tx, err := types.SignTx(unsignedTx, types.LatestSigner(ethservice.BlockChain().Config()), testKey)
+		unsignedTx := types.NewTransaction(latestNonce+uint64(i), shared.TestToAddress, big.NewInt(1), params.TxGas, big.NewInt(params.InitialBaseFee*2), nil)
+		tx, err := types.SignTx(unsignedTx, types.LatestSigner(ethservice.BlockChain().Config()), shared.TestKey)
 		require.Nil(t, err, "Failed to sign tx")
 		txs = append(txs, tx)
 
@@ -689,9 +521,9 @@ func TestExecutionServiceServerV1Alpha2_ExecuteBlockAndUpdateCommitmentWithInval
 		})
 	}
 
-	// add a tx with lesser gas than the base gas
-	unsignedTx := types.NewTransaction(latestNonce+uint64(5), testToAddress, big.NewInt(1), ethservice.BlockChain().GasLimit(), big.NewInt(params.InitialBaseFee*2), nil)
-	tx, err := types.SignTx(unsignedTx, types.LatestSigner(ethservice.BlockChain().Config()), testKey)
+	// add a tx which takes up more gas than the block gas limit
+	unsignedTx := types.NewTransaction(latestNonce+uint64(5), shared.TestToAddress, big.NewInt(1), ethservice.BlockChain().GasLimit(), big.NewInt(params.InitialBaseFee*2), nil)
+	tx, err := types.SignTx(unsignedTx, types.LatestSigner(ethservice.BlockChain().Config()), shared.TestKey)
 	require.Nil(t, err, "Failed to sign tx")
 	txs = append(txs, tx)
 
@@ -709,7 +541,7 @@ func TestExecutionServiceServerV1Alpha2_ExecuteBlockAndUpdateCommitmentWithInval
 		Transactions: marshalledTxs,
 	}
 
-	executeBlockRes, err := serviceV1Alpha1.ExecuteBlock(context.Background(), executeBlockReq)
+	executeBlockRes, err := serviceV1.ExecuteBlock(context.Background(), executeBlockReq)
 	require.Nil(t, err, "ExecuteBlock failed")
 
 	require.NotNil(t, executeBlockRes, "ExecuteBlock response is nil")
@@ -737,7 +569,7 @@ func TestExecutionServiceServerV1Alpha2_ExecuteBlockAndUpdateCommitmentWithInval
 		},
 	}
 
-	updateCommitmentStateRes, err := serviceV1Alpha1.UpdateCommitmentState(context.Background(), updateCommitmentStateReq)
+	updateCommitmentStateRes, err := serviceV1.UpdateCommitmentState(context.Background(), updateCommitmentStateReq)
 	require.Nil(t, err, "UpdateCommitmentState failed")
 	require.NotNil(t, updateCommitmentStateRes, "UpdateCommitmentState response should not be nil")
 	require.Equal(t, updateCommitmentStateRes, updateCommitmentStateReq.CommitmentState, "CommitmentState response should match request")

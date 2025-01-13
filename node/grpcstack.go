@@ -1,6 +1,7 @@
 package node
 
 import (
+	optimisticGrpc "buf.build/gen/go/astria/execution-apis/grpc/go/astria/auction/v1alpha1/auctionv1alpha1grpc"
 	"net"
 	"sync"
 
@@ -15,25 +16,36 @@ type GRPCServerHandler struct {
 	mu sync.Mutex
 
 	endpoint                   string
-	server                     *grpc.Server
+	execServer                 *grpc.Server
 	executionServiceServerV1a2 *astriaGrpc.ExecutionServiceServer
+	optimisticExecServ         *optimisticGrpc.OptimisticExecutionServiceServer
+	auctionServiceServ         *optimisticGrpc.AuctionServiceServer
+
+	enableAuctioneer bool
 }
 
 // NewServer creates a new gRPC server.
 // It registers the execution service server.
 // It registers the gRPC server with the node so it can be stopped on shutdown.
-func NewGRPCServerHandler(node *Node, execServ astriaGrpc.ExecutionServiceServer, cfg *Config) error {
-	server := grpc.NewServer()
+func NewGRPCServerHandler(node *Node, execServ astriaGrpc.ExecutionServiceServer, optimisticExecServ optimisticGrpc.OptimisticExecutionServiceServer, auctionServiceServ optimisticGrpc.AuctionServiceServer, cfg *Config) error {
+	execServer := grpc.NewServer()
 
 	log.Info("gRPC server enabled", "endpoint", cfg.GRPCEndpoint())
 
 	serverHandler := &GRPCServerHandler{
 		endpoint:                   cfg.GRPCEndpoint(),
-		server:                     server,
+		execServer:                 execServer,
 		executionServiceServerV1a2: &execServ,
+		optimisticExecServ:         &optimisticExecServ,
+		auctionServiceServ:         &auctionServiceServ,
+		enableAuctioneer:           cfg.EnableAuctioneer,
 	}
 
-	astriaGrpc.RegisterExecutionServiceServer(server, execServ)
+	astriaGrpc.RegisterExecutionServiceServer(execServer, execServ)
+	if cfg.EnableAuctioneer {
+		optimisticGrpc.RegisterOptimisticExecutionServiceServer(execServer, optimisticExecServ)
+		optimisticGrpc.RegisterAuctionServiceServer(execServer, auctionServiceServ)
+	}
 
 	node.RegisterGRPCServer(serverHandler)
 	return nil
@@ -49,11 +61,13 @@ func (handler *GRPCServerHandler) Start() error {
 	}
 
 	// Start the gRPC server
-	lis, err := net.Listen("tcp", handler.endpoint)
+	tcpLis, err := net.Listen("tcp", handler.endpoint)
 	if err != nil {
 		return err
 	}
-	go handler.server.Serve(lis)
+
+	go handler.execServer.Serve(tcpLis)
+
 	log.Info("gRPC server started", "endpoint", handler.endpoint)
 	return nil
 }
@@ -63,7 +77,8 @@ func (handler *GRPCServerHandler) Stop() error {
 	handler.mu.Lock()
 	defer handler.mu.Unlock()
 
-	handler.server.GracefulStop()
+	handler.execServer.GracefulStop()
+
 	log.Info("gRPC server stopped", "endpoint", handler.endpoint)
 	return nil
 }
