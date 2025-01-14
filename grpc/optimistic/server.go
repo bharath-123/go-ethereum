@@ -193,7 +193,7 @@ func (o *OptimisticServiceV1Alpha1) ExecuteOptimisticBlock(ctx context.Context, 
 
 	addressPrefix := o.Bc().Config().AstriaSequencerAddressPrefix
 
-	txsToProcess := shared.UnbundleRollupDataTransactions(req.Transactions, height, o.BridgeAddresses(), o.BridgeAllowedAssets(), softBlock.Hash().Bytes(), o.AuctioneerAddress(), addressPrefix)
+	txsToProcess := shared.UnbundleRollupDataTransactions(req.Transactions, height, o.BridgeAddresses(), o.BridgeAllowedAssets(), softBlock.Hash().Bytes(), o.AuctioneerAddress(), o.AuctioneerStartHeight(), addressPrefix)
 
 	// Build a payload to add to the chain
 	payloadAttributes := &miner.BuildPayloadArgs{
@@ -286,18 +286,22 @@ func (o *OptimisticServiceV1Alpha1) SetNextFeeRecipient(feeRecipient common.Addr
 	o.sharedServiceContainer.SetNextFeeRecipient(feeRecipient)
 }
 
-func (s *OptimisticServiceV1Alpha1) BridgeAddresses() map[string]*params.AstriaBridgeAddressConfig {
-	return s.sharedServiceContainer.BridgeAddresses()
+func (o *OptimisticServiceV1Alpha1) BridgeAddresses() map[string]*params.AstriaBridgeAddressConfig {
+	return o.sharedServiceContainer.BridgeAddresses()
 }
 
-func (s *OptimisticServiceV1Alpha1) BridgeAllowedAssets() map[string]struct{} {
-	return s.sharedServiceContainer.BridgeAllowedAssets()
+func (o *OptimisticServiceV1Alpha1) BridgeAllowedAssets() map[string]struct{} {
+	return o.sharedServiceContainer.BridgeAllowedAssets()
 }
 
-func (s *OptimisticServiceV1Alpha1) SyncMethodsCalled() bool {
-	return s.sharedServiceContainer.SyncMethodsCalled()
+func (o *OptimisticServiceV1Alpha1) SyncMethodsCalled() bool {
+	return o.sharedServiceContainer.SyncMethodsCalled()
 }
 
-func (s *OptimisticServiceV1Alpha1) AuctioneerAddress() string {
-	return s.sharedServiceContainer.AuctioneerAddress()
+func (o *OptimisticServiceV1Alpha1) AuctioneerAddress() string {
+	return o.sharedServiceContainer.AuctioneerAddress()
+}
+
+func (o *OptimisticServiceV1Alpha1) AuctioneerStartHeight() uint64 {
+	return o.sharedServiceContainer.AuctioneerStartHeight()
 }

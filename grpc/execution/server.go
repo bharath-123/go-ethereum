@@ -172,7 +172,7 @@ func (s *ExecutionServiceServerV1) ExecuteBlock(ctx context.Context, req *astria
 
 	addressPrefix := s.Bc().Config().AstriaSequencerAddressPrefix
 
-	txsToProcess := shared.UnbundleRollupDataTransactions(req.Transactions, height, s.BridgeAddresses(), s.BridgeAllowedAssets(), prevHeadHash.Bytes(), s.AuctioneerAddress(), addressPrefix)
+	txsToProcess := shared.UnbundleRollupDataTransactions(req.Transactions, height, s.BridgeAddresses(), s.BridgeAllowedAssets(), prevHeadHash.Bytes(), s.AuctioneerAddress(), s.AuctioneerStartHeight(), addressPrefix)
 
 	// This set of ordered TXs on the TxPool is has been configured to be used by
 	// the Miner when building a payload.
@@ -447,4 +447,8 @@ func (s *ExecutionServiceServerV1) AuctioneerAddress() string {
 
 func (s *ExecutionServiceServerV1) SetAuctioneerAddress(auctioneerAddress string) {
 	s.sharedServiceContainer.SetAuctioneerAddress(auctioneerAddress)
+}
+
+func (s *ExecutionServiceServerV1) AuctioneerStartHeight() uint64 {
+	return s.sharedServiceContainer.AuctioneerStartHeight()
 }

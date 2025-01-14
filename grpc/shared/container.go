@@ -27,6 +27,9 @@ type SharedServiceContainer struct {
 
 	// auctioneer address is a bech32m address
 	auctioneerAddress atomic.Pointer[string]
+	// this is set to the height at which the first auctioneer address is activated.
+	// before `auctioneerStartHeight` any incoming `Allocations` will be ignored
+	auctioneerStartHeight uint64
 
 	nextFeeRecipient atomic.Pointer[common.Address] // Fee recipient for the next block
 }
@@ -109,6 +112,7 @@ func NewSharedServiceContainer(eth *eth.Ethereum) (*SharedServiceContainer, erro
 		for height, address := range auctioneerAddressesBlockMap {
 			if height <= nextBlock && height > maxHeightCollectorMatch {
 				maxHeightCollectorMatch = height
+
 				if err := ValidateBech32mAddress(address, bc.Config().AstriaSequencerAddressPrefix); err != nil {
 					return nil, errors.Wrapf(err, "auctioneer address %s at height %d is invalid", address, height)
 				}
@@ -117,11 +121,20 @@ func NewSharedServiceContainer(eth *eth.Ethereum) (*SharedServiceContainer, erro
 		}
 	}
 
+	// the height at which the first auctioneer address is activated
+	auctioneerStartHeight := ^uint64(0)
+	for height := range auctioneerAddressesBlockMap {
+		if uint64(height) < auctioneerStartHeight {
+			auctioneerStartHeight = uint64(height)
+		}
+	}
+
 	sharedServiceContainer := &SharedServiceContainer{
-		eth:                 eth,
-		bc:                  bc,
-		bridgeAddresses:     bridgeAddresses,
-		bridgeAllowedAssets: bridgeAllowedAssets,
+		eth:                   eth,
+		bc:                    bc,
+		bridgeAddresses:       bridgeAddresses,
+		bridgeAllowedAssets:   bridgeAllowedAssets,
+		auctioneerStartHeight: auctioneerStartHeight,
 	}
 
 	sharedServiceContainer.SetAuctioneerAddress(auctioneerAddress)
@@ -181,6 +194,10 @@ func (s *SharedServiceContainer) BridgeAddresses() map[string]*params.AstriaBrid
 
 func (s *SharedServiceContainer) BridgeAllowedAssets() map[string]struct{} {
 	return s.bridgeAllowedAssets
+}
+
+func (s *SharedServiceContainer) AuctioneerStartHeight() uint64 {
+	return s.auctioneerStartHeight
 }
 
 func (s *SharedServiceContainer) AuctioneerAddress() string {
