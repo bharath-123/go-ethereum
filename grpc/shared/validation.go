@@ -222,10 +222,10 @@ func UnbundleRollupDataTransactions(txs []*sequencerblockv1.RollupData, height u
 			err := proto.Unmarshal(sequenceData, tempAllocation)
 			if err == nil {
 				if allocation != nil {
-					log.Debug("Ignoring allocation tx as it is a duplicate", "height", height)
+					log.Debug("ignoring allocation tx as it is a duplicate", "height", height)
 				} else {
 					if height < auctioneerStartHeight {
-						log.Debug("Ignoring allocation tx as it is before the auctioneer start height", "height", height, "auctioneerStartHeight", auctioneerStartHeight)
+						log.Debug("ignoring allocation tx as it is before the auctioneer start height", "height", height, "auctioneerStartHeight", auctioneerStartHeight)
 						continue
 					}
 
