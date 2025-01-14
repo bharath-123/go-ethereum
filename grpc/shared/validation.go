@@ -193,15 +193,17 @@ func unmarshallAllocationTxs(allocation *auctionv1alpha1.Allocation, prevBlockHa
 
 }
 
-// `UnbundleRollupDataTransactions` takes in a list of rollup data transactions and returns a list of Ethereum transactions.
-// TODO - this function has become too big. we should start breaking it down
+// `UnbundleRollupDataTransactions` takes in a list of rollup data transactions and returns the corresponding
+// list of Ethereum transactions. It also returns an allocation transaction if it finds one in the rollup data.
+// The allocation transaction is placed at the beginning of the returned list of transactions.
 func UnbundleRollupDataTransactions(txs []*sequencerblockv1.RollupData, height uint64, bridgeAddresses map[string]*params.AstriaBridgeAddressConfig,
-	bridgeAllowedAssets map[string]struct{}, prevBlockHash []byte, auctioneerBech32Address string, addressPrefix string) types.Transactions {
+	bridgeAllowedAssets map[string]struct{}, prevBlockHash []byte, auctioneerBech32Address string, auctioneerStartHeight uint64, addressPrefix string) types.Transactions {
 
 	processedTxs := types.Transactions{}
 	allocationTxs := types.Transactions{}
-	// we just return the allocation here and do not unmarshall the transactions in the bid if we find it
+
 	var allocation *auctionv1alpha1.Allocation
+
 	for _, tx := range txs {
 		if deposit := tx.GetDeposit(); deposit != nil {
 			depositTx, err := validateAndUnmarshalDepositTx(deposit, height, bridgeAddresses, bridgeAllowedAssets)
@@ -213,27 +215,29 @@ func UnbundleRollupDataTransactions(txs []*sequencerblockv1.RollupData, height u
 			processedTxs = append(processedTxs, depositTx)
 		} else {
 			sequenceData := tx.GetSequencedData()
-			// check if sequence data is of type Allocation
-			if allocation == nil {
-				// TODO - check if we can avoid a temp value
-				tempAllocation := &auctionv1alpha1.Allocation{}
-				err := proto.Unmarshal(sequenceData, tempAllocation)
-				if err == nil {
+			// check if sequence data is of type Allocation.
+			// we should expect only one valid allocation per block. duplicate allocations should be ignored.
+
+			tempAllocation := &auctionv1alpha1.Allocation{}
+			err := proto.Unmarshal(sequenceData, tempAllocation)
+			if err == nil {
+				if allocation != nil {
+					log.Debug("Ignoring allocation tx as it is a duplicate", "height", height)
+				} else {
+					if height < auctioneerStartHeight {
+						log.Debug("Ignoring allocation tx as it is before the auctioneer start height", "height", height, "auctioneerStartHeight", auctioneerStartHeight)
+						continue
+					}
+
 					unmarshalledAllocationTxs, err := unmarshallAllocationTxs(tempAllocation, prevBlockHash, auctioneerBech32Address, addressPrefix)
 					if err != nil {
 						log.Error("failed to unmarshall allocation transactions", "error", err)
 						continue
 					}
 
+					// we found the valid allocation, we should ignore all future allocations in this block
 					allocation = tempAllocation
 					allocationTxs = unmarshalledAllocationTxs
-				} else {
-					ethtx, err := validateAndUnmarshallSequenceAction(tx)
-					if err != nil {
-						log.Error("failed to unmarshall sequence action", "error", err)
-						continue
-					}
-					processedTxs = append(processedTxs, ethtx)
 				}
 			} else {
 				ethtx, err := validateAndUnmarshallSequenceAction(tx)

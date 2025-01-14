@@ -27,6 +27,9 @@ type SharedServiceContainer struct {
 
 	// auctioneer address is a bech32m address
 	auctioneerAddress atomic.Pointer[string]
+	// this is set to the height at which the first auctioneer address is activated.
+	// before `auctioneerStartHeight` any incoming `Allocations` will be ignored
+	auctioneerStartHeight uint64
 
 	nextFeeRecipient atomic.Pointer[common.Address] // Fee recipient for the next block
 }
@@ -181,6 +184,10 @@ func (s *SharedServiceContainer) BridgeAddresses() map[string]*params.AstriaBrid
 
 func (s *SharedServiceContainer) BridgeAllowedAssets() map[string]struct{} {
 	return s.bridgeAllowedAssets
+}
+
+func (s *SharedServiceContainer) AuctioneerStartHeight() uint64 {
+	return s.auctioneerStartHeight
 }
 
 func (s *SharedServiceContainer) AuctioneerAddress() string {

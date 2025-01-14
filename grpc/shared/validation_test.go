@@ -482,7 +482,7 @@ func TestUnbundleRollupData(t *testing.T) {
 
 	finalTxs := []*sequencerblockv1.RollupData{seqData1, seqData2, allocationSequenceData, depositTx}
 
-	txsToProcess := UnbundleRollupDataTransactions(finalTxs, 2, serviceV1Alpha1.BridgeAddresses(), serviceV1Alpha1.BridgeAllowedAssets(), prevRollupBlockHash, serviceV1Alpha1.AuctioneerAddress(), addressPrefix)
+	txsToProcess := UnbundleRollupDataTransactions(finalTxs, 2, serviceV1Alpha1.BridgeAddresses(), serviceV1Alpha1.BridgeAllowedAssets(), prevRollupBlockHash, serviceV1Alpha1.AuctioneerAddress(), serviceV1Alpha1.AuctioneerStartHeight(), addressPrefix)
 
 	require.Equal(t, txsToProcess.Len(), 6, "expected 6 txs to process")
 
@@ -589,7 +589,7 @@ func TestUnbundleRollupDataWithDuplicateAllocations(t *testing.T) {
 
 	finalTxs := []*sequencerblockv1.RollupData{seqData1, seqData2, allocationSequenceData, allocationSequenceData2, depositTx}
 
-	txsToProcess := UnbundleRollupDataTransactions(finalTxs, 2, serviceV1Alpha1.BridgeAddresses(), serviceV1Alpha1.BridgeAllowedAssets(), prevRollupBlockHash, serviceV1Alpha1.AuctioneerAddress(), addressPrefix)
+	txsToProcess := UnbundleRollupDataTransactions(finalTxs, 2, serviceV1Alpha1.BridgeAddresses(), serviceV1Alpha1.BridgeAllowedAssets(), prevRollupBlockHash, serviceV1Alpha1.AuctioneerAddress(), serviceV1Alpha1.AuctioneerStartHeight(), addressPrefix)
 
 	require.Equal(t, txsToProcess.Len(), 6, "expected 6 txs to process")
 
@@ -734,7 +734,7 @@ func TestUnbundleRollupDataWithDuplicateInvalidAllocations(t *testing.T) {
 
 	finalTxs := []*sequencerblockv1.RollupData{seqData1, seqData2, allocationSequenceData, invalidAllocationSequenceData, depositTx}
 
-	txsToProcess := UnbundleRollupDataTransactions(finalTxs, 2, serviceV1Alpha1.BridgeAddresses(), serviceV1Alpha1.BridgeAllowedAssets(), prevRollupBlockHash, serviceV1Alpha1.AuctioneerAddress(), addressPrefix)
+	txsToProcess := UnbundleRollupDataTransactions(finalTxs, 2, serviceV1Alpha1.BridgeAddresses(), serviceV1Alpha1.BridgeAllowedAssets(), prevRollupBlockHash, serviceV1Alpha1.AuctioneerAddress(), serviceV1Alpha1.AuctioneerStartHeight(), addressPrefix)
 
 	require.Equal(t, txsToProcess.Len(), 6, "expected 6 txs to process")
 
