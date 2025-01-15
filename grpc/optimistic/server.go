@@ -73,9 +73,7 @@ func (o *OptimisticServiceV1Alpha1) GetBidStream(_ *optimsticPb.GetBidStreamRequ
 
 				totalCost := big.NewInt(0)
 				effectiveTip := cmath.BigMin(pendingTx.GasTipCap(), new(big.Int).Sub(pendingTx.GasFeeCap(), optimisticBlock.BaseFee))
-				gasUsed := pendingTx.Gas()
-				totalTipFee := big.NewInt(0).Mul(effectiveTip, big.NewInt(int64(gasUsed)))
-				totalCost.Add(totalCost, totalTipFee)
+				totalCost = totalCost.Mul(effectiveTip, big.NewInt(int64(pendingTx.Gas())))
 
 				marshalledTxs := [][]byte{}
 				marshalledTx, err := pendingTx.MarshalBinary()
