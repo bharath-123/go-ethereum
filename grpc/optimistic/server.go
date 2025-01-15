@@ -73,7 +73,7 @@ func (o *OptimisticServiceV1Alpha1) GetBidStream(_ *optimsticPb.GetBidStreamRequ
 
 				totalCost := big.NewInt(0)
 				effectiveTip := cmath.BigMin(pendingTx.GasTipCap(), new(big.Int).Sub(pendingTx.GasFeeCap(), optimisticBlock.BaseFee))
-				totalCost.Add(totalCost, effectiveTip)
+				totalCost = totalCost.Mul(effectiveTip, big.NewInt(int64(pendingTx.Gas())))
 
 				marshalledTxs := [][]byte{}
 				marshalledTx, err := pendingTx.MarshalBinary()
@@ -169,7 +169,7 @@ func (o *OptimisticServiceV1Alpha1) ExecuteOptimisticBlockStream(stream optimist
 
 func (o *OptimisticServiceV1Alpha1) ExecuteOptimisticBlock(ctx context.Context, req *optimsticPb.BaseBlock) (*astriaPb.Block, error) {
 	// we need to execute the optimistic block
-	log.Debug("ExecuteOptimisticBlock called", "timestamp", req.Timestamp, "sequencer_block_hash", req.SequencerBlockHash)
+	log.Debug("ExecuteOptimisticBlock called", "timestamp", req.Timestamp, "sequencer_block_hash", common.BytesToHash(req.SequencerBlockHash).String())
 
 	// Deliberately called after lock, to more directly measure the time spent executing
 	executionStart := time.Now()
