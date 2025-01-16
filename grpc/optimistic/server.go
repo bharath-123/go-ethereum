@@ -17,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/miner"
 	"github.com/ethereum/go-ethereum/params"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"io"
@@ -55,13 +56,29 @@ func NewOptimisticServiceV1Alpha(sharedServiceContainer *shared.SharedServiceCon
 }
 
 func (o *OptimisticServiceV1Alpha1) GetBidStream(_ *optimsticPb.GetBidStreamRequest, stream optimisticGrpc.AuctionService_GetBidStreamServer) error {
-	log.Debug("GetBidStream called")
+	log.Info("GetBidStream called")
 
 	pendingTxEventCh := make(chan core.NewTxsEvent)
 	pendingTxEvent := o.Eth().TxPool().SubscribeTransactions(pendingTxEventCh, false)
 	defer pendingTxEvent.Unsubscribe()
 
+	streamInitMetadata := map[string]string{
+		"stream": "init",
+	}
+
+	metadataToSend := metadata.New(streamInitMetadata)
+
+	// send an initial response
+	err := stream.SendHeader(metadataToSend)
+	if err != nil {
+		log.Error("BHARATH: error sending initial response", "err", err)
+		return status.Errorf(codes.Internal, shared.WrapError(err, "error sending initial response").Error())
+	}
+
+	log.Info("BHARATH: done with pendingTxEvent subscription!")
+
 	for {
+		log.Info("BHARATH: starting to listen to pending txs!")
 		select {
 		case pendingTxs := <-pendingTxEventCh:
 			// get the optimistic block
@@ -69,6 +86,7 @@ func (o *OptimisticServiceV1Alpha1) GetBidStream(_ *optimsticPb.GetBidStreamRequ
 			optimisticBlock := o.Eth().BlockChain().CurrentOptimisticBlock()
 
 			for _, pendingTx := range pendingTxs.Txs {
+				log.Info("BHARATH: got pending tx!!")
 				bid := optimsticPb.Bid{}
 
 				totalCost := big.NewInt(0)
