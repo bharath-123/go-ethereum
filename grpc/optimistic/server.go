@@ -17,7 +17,6 @@ import (
 	"github.com/ethereum/go-ethereum/miner"
 	"github.com/ethereum/go-ethereum/params"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"io"
@@ -61,19 +60,6 @@ func (o *OptimisticServiceV1Alpha1) GetBidStream(_ *optimsticPb.GetBidStreamRequ
 	pendingTxEventCh := make(chan core.NewTxsEvent)
 	pendingTxEvent := o.Eth().TxPool().SubscribeTransactions(pendingTxEventCh, false)
 	defer pendingTxEvent.Unsubscribe()
-
-	streamInitMetadata := map[string]string{
-		"stream": "init",
-	}
-
-	metadataToSend := metadata.New(streamInitMetadata)
-
-	// send an initial response
-	err := stream.SendHeader(metadataToSend)
-	if err != nil {
-		log.Error("error sending initial response", "err", err)
-		return status.Errorf(codes.Internal, shared.WrapError(err, "error sending initial response").Error())
-	}
 
 	for {
 		select {
