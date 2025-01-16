@@ -56,7 +56,7 @@ func NewOptimisticServiceV1Alpha(sharedServiceContainer *shared.SharedServiceCon
 }
 
 func (o *OptimisticServiceV1Alpha1) GetBidStream(_ *optimsticPb.GetBidStreamRequest, stream optimisticGrpc.AuctionService_GetBidStreamServer) error {
-	log.Info("GetBidStream called")
+	log.Debug("GetBidStream called")
 
 	pendingTxEventCh := make(chan core.NewTxsEvent)
 	pendingTxEvent := o.Eth().TxPool().SubscribeTransactions(pendingTxEventCh, false)
@@ -71,14 +71,11 @@ func (o *OptimisticServiceV1Alpha1) GetBidStream(_ *optimsticPb.GetBidStreamRequ
 	// send an initial response
 	err := stream.SendHeader(metadataToSend)
 	if err != nil {
-		log.Error("BHARATH: error sending initial response", "err", err)
+		log.Error("error sending initial response", "err", err)
 		return status.Errorf(codes.Internal, shared.WrapError(err, "error sending initial response").Error())
 	}
 
-	log.Info("BHARATH: done with pendingTxEvent subscription!")
-
 	for {
-		log.Info("BHARATH: starting to listen to pending txs!")
 		select {
 		case pendingTxs := <-pendingTxEventCh:
 			// get the optimistic block
@@ -86,7 +83,6 @@ func (o *OptimisticServiceV1Alpha1) GetBidStream(_ *optimsticPb.GetBidStreamRequ
 			optimisticBlock := o.Eth().BlockChain().CurrentOptimisticBlock()
 
 			for _, pendingTx := range pendingTxs.Txs {
-				log.Info("BHARATH: got pending tx!!")
 				bid := optimsticPb.Bid{}
 
 				totalCost := big.NewInt(0)
