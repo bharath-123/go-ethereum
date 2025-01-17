@@ -1,13 +1,13 @@
 package shared
 
 import (
+	"errors"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/eth"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/pkg/errors"
 	"sync"
 	"sync/atomic"
 )
@@ -114,7 +114,7 @@ func NewSharedServiceContainer(eth *eth.Ethereum) (*SharedServiceContainer, erro
 			maxHeightCollectorMatch = height
 
 			if err := ValidateBech32mAddress(address, bc.Config().AstriaSequencerAddressPrefix); err != nil {
-				return nil, errors.Wrapf(err, "auctioneer address %s at height %d is invalid", address, height)
+				return nil, WrapError(err, fmt.Sprintf("auctioneer address %s at height %d is invalid", address, height))
 			}
 			auctioneerAddress = address
 		}

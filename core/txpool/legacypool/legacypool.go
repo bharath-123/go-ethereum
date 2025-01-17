@@ -1380,9 +1380,11 @@ func (pool *LegacyPool) runReorg(done chan struct{}, reset *txpoolResetRequest, 
 		// when we are not running the auctioneer node, we re-inject any re-orged transactions which is similar
 		// to the current functionality of geth
 		if pool.auctioneerEnabled {
-			// only reset from the old head to the new head
+			// only reset from the old head to the new head.
+			// since we will be clearing the mempool, we do not need to re-inject any re-orged transactions
 			pool.resetHeadOnly(reset.oldHead, reset.newHead)
 		} else {
+			// this is current functionality of geth
 			// Reset from the old head to the new, rescheduling any reorged transactions
 			pool.reset(reset.oldHead, reset.newHead)
 		}
@@ -1411,6 +1413,7 @@ func (pool *LegacyPool) runReorg(done chan struct{}, reset *txpoolResetRequest, 
 			// is reset
 			pool.clearPendingAndQueued(reset.newHead)
 		} else {
+			// this is the current functionality of geth
 			pool.demoteUnexecutables()
 		}
 		if reset.newHead != nil {
@@ -1437,6 +1440,7 @@ func (pool *LegacyPool) runReorg(done chan struct{}, reset *txpoolResetRequest, 
 	pool.changesSinceReorg = 0 // Reset change counter
 	pool.mu.Unlock()
 
+	// Notify that the mempool has been cleared
 	if reset != nil {
 		pool.mempoolClearFeed.Send(core.NewMempoolCleared{NewHead: reset.newHead})
 	}

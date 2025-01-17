@@ -196,6 +196,9 @@ func unmarshallAllocationTxs(allocation *auctionv1alpha1.Allocation, prevBlockHa
 // `UnbundleRollupDataTransactions` takes in a list of rollup data transactions and returns the corresponding
 // list of Ethereum transactions.
 // If it finds any `Allocation` type, it validates it and places the txs in the `Allocation` at the top of block.
+// Note that `UnbundleRollupDataTransactions` does not return any error on an invalid `RollupData`. If we find any invalid
+// `RollupData` we log the error and continue processing the rest of the transactions. We do not want to break control flow
+// for an invalid transaction as we do not want to interrupt block production.
 // TODO - This function has too many arguments. We should consider refactoring it.
 func UnbundleRollupDataTransactions(txs []*sequencerblockv1.RollupData, height uint64, bridgeAddresses map[string]*params.AstriaBridgeAddressConfig,
 	bridgeAllowedAssets map[string]struct{}, prevBlockHash []byte, auctioneerBech32Address string, auctioneerStartHeight uint64, addressPrefix string) types.Transactions {

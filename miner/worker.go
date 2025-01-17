@@ -251,6 +251,9 @@ func (miner *Miner) commitAstriaTransactions(env *environment, txs *types.Transa
 		// Check interruption signal and abort building if it's fired.
 		if interrupt != nil {
 			if signal := interrupt.Load(); signal != commitInterruptNone {
+				// we do not need to remove failing txs from the mempool during optimistic execution as they would
+				// anyways be removed when the block is built by the main execution path. Regardless, if the node is being
+				// run as an auctioneer node, the mempool is cleared after every optimistic execution round.
 				if !isOptimisticExecution {
 					// remove the subsequent txs from the mempool if block building has been interrupted
 					for _, txToRemove := range (*txs)[i:] {
@@ -308,6 +311,12 @@ func (miner *Miner) commitAstriaTransactions(env *environment, txs *types.Transa
 }
 
 func (miner *Miner) fillAstriaTransactions(interrupt *atomic.Int32, env *environment, overrideTransactions types.Transactions, isOptimisticExecution bool) error {
+	// TODO - the below setup should be refactored. We use the `AstriaOrdered` pool to store the transactions during regular execution
+	// and we use the `overrideTransactions` to store the transactions during optimistic execution. This is a bit confusing and should be
+	// refactored to use a single way of tx passing. Ideally, we would want to avoid using the `AstriaOrdered` pool but we would
+	// have to figure out how to handle transactions which do not fit into the block. We currently store these txs in the `AstriaExcludedFromBlock`
+	// array and remove these txs from the mempool when the block is built.
+
 	// Use pre ordered array of txs
 	astriaTxs := miner.txpool.AstriaOrdered()
 	// use the override transactions instead of astria txs

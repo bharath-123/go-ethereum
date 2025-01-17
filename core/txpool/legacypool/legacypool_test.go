@@ -666,6 +666,7 @@ func TestNonceRecovery(t *testing.T) {
 	if fn := pool.Nonce(addr); fn != n-1 {
 		t.Errorf("expected nonce to be %d, got %d", n-1, fn)
 	}
+
 }
 
 // Tests that if an account runs out of funds, any pending and queued transactions
