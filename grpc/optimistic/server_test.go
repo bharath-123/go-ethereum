@@ -23,7 +23,7 @@ import (
 	"time"
 )
 
-func TestOptimisticServiceServerV1Alpha1_ExecuteOptimisticBlock(t *testing.T) {
+func TestAuctionServiceServerV1Alpha1_ExecuteOptimisticBlock(t *testing.T) {
 	ethService, _, _, _ := shared.SetupSharedService(t, 10)
 
 	tests := []struct {
@@ -69,7 +69,7 @@ func TestOptimisticServiceServerV1Alpha1_ExecuteOptimisticBlock(t *testing.T) {
 			ethservice, sharedService, _, _ := shared.SetupSharedService(t, 10)
 
 			// reset the blockchain with each test
-			optimisticServiceV1Alpha1 := SetupOptimisticService(t, sharedService)
+			auctionServiceV1Alpha1 := SetupAuctionService(t, sharedService)
 			executionServiceV1 := execution.SetupExecutionService(t, sharedService)
 
 			var err error // adding this to prevent shadowing of genesisInfo in the below if branch
@@ -144,7 +144,7 @@ func TestOptimisticServiceServerV1Alpha1_ExecuteOptimisticBlock(t *testing.T) {
 				SequencerBlockHash: []byte("test_hash"),
 			}
 
-			res, err := optimisticServiceV1Alpha1.ExecuteOptimisticBlock(context.Background(), baseBlockReq)
+			res, err := auctionServiceV1Alpha1.ExecuteOptimisticBlock(context.Background(), baseBlockReq)
 			if tt.expectedReturnCode > 0 {
 				require.NotNil(t, err, "ExecuteOptimisticBlock should return an error")
 				require.Equal(t, tt.expectedReturnCode, status.Code(err), "ExecuteOptimisticBlock failed")
@@ -193,10 +193,10 @@ func TestOptimisticServiceServerV1Alpha1_ExecuteOptimisticBlock(t *testing.T) {
 	}
 }
 
-func TestNewOptimisticServiceServerV1Alpha_StreamBids(t *testing.T) {
+func TestAuctionServiceServerV1Alpha_StreamBids(t *testing.T) {
 	ethservice, sharedService, _, _ := shared.SetupSharedService(t, 10)
 
-	optimisticServiceV1Alpha1 := SetupOptimisticService(t, sharedService)
+	optimisticServiceV1Alpha1 := SetupAuctionService(t, sharedService)
 	executionServiceV1 := execution.SetupExecutionService(t, sharedService)
 
 	// call genesis info
@@ -353,14 +353,14 @@ func TestNewOptimisticServiceServerV1Alpha_StreamBids(t *testing.T) {
 		txIndx += 1
 
 		require.True(t, bytes.Equal(bid.RollupParentBlockHash, currentOptimisticBlock.Hash().Bytes()), "PrevRollupBlockHash should match the current optimistic block hash")
-		require.True(t, bytes.Equal(bid.SequencerParentBlockHash, *optimisticServiceV1Alpha1.currentOptimisticSequencerBlock.Load()), "BaseSequencerBlockHash should match the current optimistic sequencer block hash")
+		require.True(t, bytes.Equal(bid.SequencerParentBlockHash, *optimisticServiceV1Alpha1.currentAuctionBlock.Load()), "BaseSequencerBlockHash should match the current optimistic sequencer block hash")
 	}
 }
 
-func TestOptimisticServiceServerV1_StreamExecuteOptimisticBlock(t *testing.T) {
+func TestAuctionServiceServerV1_StreamExecuteOptimisticBlock(t *testing.T) {
 	ethservice, sharedService, _, _ := shared.SetupSharedService(t, 10)
 
-	optimisticServiceV1Alpha1 := SetupOptimisticService(t, sharedService)
+	auctionServiceV1Alpha1 := SetupAuctionService(t, sharedService)
 	executionServiceV1 := execution.SetupExecutionService(t, sharedService)
 
 	// call genesis info
@@ -423,7 +423,7 @@ func TestOptimisticServiceServerV1_StreamExecuteOptimisticBlock(t *testing.T) {
 
 	errorCh := make(chan error)
 	go func(errorCh chan error) {
-		errorCh <- optimisticServiceV1Alpha1.ExecuteOptimisticBlockStream(mockStream)
+		errorCh <- auctionServiceV1Alpha1.ExecuteOptimisticBlockStream(mockStream)
 	}(errorCh)
 
 	select {

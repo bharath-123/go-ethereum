@@ -215,9 +215,9 @@ func makeFullNode(ctx *cli.Context) *node.Node {
 
 		serviceV1a2 := execution.NewExecutionServiceServerV1(sharedService)
 
-		optimisticServiceV1a1 := optimistic.NewOptimisticServiceV1Alpha(sharedService)
+		auctionServiceV1Alpha1 := optimistic.NewAuctionServiceV1Alpha1(sharedService)
 
-		utils.RegisterGRPCServices(stack, serviceV1a2, optimisticServiceV1a1, optimisticServiceV1a1, &cfg.Node)
+		utils.RegisterGRPCServices(stack, serviceV1a2, auctionServiceV1Alpha1, auctionServiceV1Alpha1, &cfg.Node)
 	}
 
 	// Add the Ethereum Stats daemon if requested.

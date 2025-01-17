@@ -103,27 +103,26 @@ func NewSharedServiceContainer(eth *eth.Ethereum) (*SharedServiceContainer, erro
 		}
 	}
 
-	auctioneerAddressesBlockMap := bc.Config().AstriaAuctioneerAddresses
-	auctioneerAddress := ""
-	if auctioneerAddressesBlockMap == nil {
+	if bc.Config().AstriaAuctioneerAddresses == nil {
 		return nil, errors.New("auctioneer addresses not set")
-	} else {
-		maxHeightCollectorMatch := uint32(0)
-		for height, address := range auctioneerAddressesBlockMap {
-			if height <= nextBlock && height > maxHeightCollectorMatch {
-				maxHeightCollectorMatch = height
+	}
 
-				if err := ValidateBech32mAddress(address, bc.Config().AstriaSequencerAddressPrefix); err != nil {
-					return nil, errors.Wrapf(err, "auctioneer address %s at height %d is invalid", address, height)
-				}
-				auctioneerAddress = address
+	maxHeightCollectorMatch := uint32(0)
+	auctioneerAddress := ""
+	for height, address := range bc.Config().AstriaAuctioneerAddresses {
+		if height <= nextBlock && height > maxHeightCollectorMatch {
+			maxHeightCollectorMatch = height
+
+			if err := ValidateBech32mAddress(address, bc.Config().AstriaSequencerAddressPrefix); err != nil {
+				return nil, errors.Wrapf(err, "auctioneer address %s at height %d is invalid", address, height)
 			}
+			auctioneerAddress = address
 		}
 	}
 
 	// the height at which the first auctioneer address is activated
 	auctioneerStartHeight := ^uint64(0)
-	for height := range auctioneerAddressesBlockMap {
+	for height := range bc.Config().AstriaAuctioneerAddresses {
 		if uint64(height) < auctioneerStartHeight {
 			auctioneerStartHeight = uint64(height)
 		}

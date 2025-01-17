@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-func SetupOptimisticService(t *testing.T, sharedService *shared.SharedServiceContainer) *OptimisticServiceV1Alpha1 {
+func SetupAuctionService(t *testing.T, sharedService *shared.SharedServiceContainer) *AuctionServiceV1Alpha1 {
 	t.Helper()
 
-	return NewOptimisticServiceV1Alpha(sharedService)
+	return NewAuctionServiceV1Alpha1(sharedService)
 }

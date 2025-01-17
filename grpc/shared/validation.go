@@ -194,8 +194,9 @@ func unmarshallAllocationTxs(allocation *auctionv1alpha1.Allocation, prevBlockHa
 }
 
 // `UnbundleRollupDataTransactions` takes in a list of rollup data transactions and returns the corresponding
-// list of Ethereum transactions. It also returns an allocation transaction if it finds one in the rollup data.
-// The allocation transaction is placed at the beginning of the returned list of transactions.
+// list of Ethereum transactions.
+// If it finds any `Allocation` type, it validates it and places the txs in the `Allocation` at the top of block.
+// TODO - This function has too many arguments. We should consider refactoring it.
 func UnbundleRollupDataTransactions(txs []*sequencerblockv1.RollupData, height uint64, bridgeAddresses map[string]*params.AstriaBridgeAddressConfig,
 	bridgeAllowedAssets map[string]struct{}, prevBlockHash []byte, auctioneerBech32Address string, auctioneerStartHeight uint64, addressPrefix string) types.Transactions {
 
@@ -215,9 +216,9 @@ func UnbundleRollupDataTransactions(txs []*sequencerblockv1.RollupData, height u
 			processedTxs = append(processedTxs, depositTx)
 		} else {
 			sequenceData := tx.GetSequencedData()
+
 			// check if sequence data is of type Allocation.
 			// we should expect only one valid allocation per block. duplicate allocations should be ignored.
-
 			tempAllocation := &auctionv1alpha1.Allocation{}
 			err := proto.Unmarshal(sequenceData, tempAllocation)
 			if err == nil {

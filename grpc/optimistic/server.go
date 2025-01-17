@@ -1,8 +1,8 @@
 package optimistic
 
 import (
-	optimisticGrpc "buf.build/gen/go/astria/execution-apis/grpc/go/astria/auction/v1alpha1/auctionv1alpha1grpc"
-	optimsticPb "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/auction/v1alpha1"
+	auctionGrpc "buf.build/gen/go/astria/execution-apis/grpc/go/astria/auction/v1alpha1/auctionv1alpha1grpc"
+	auctionPb "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/auction/v1alpha1"
 	astriaPb "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/execution/v1"
 	"context"
 	"errors"
@@ -26,13 +26,13 @@ import (
 	"time"
 )
 
-type OptimisticServiceV1Alpha1 struct {
-	optimisticGrpc.UnimplementedOptimisticExecutionServiceServer
-	optimisticGrpc.UnimplementedAuctionServiceServer
+type AuctionServiceV1Alpha1 struct {
+	auctionGrpc.UnimplementedOptimisticExecutionServiceServer
+	auctionGrpc.UnimplementedAuctionServiceServer
 
 	sharedServiceContainer *shared.SharedServiceContainer
 
-	currentOptimisticSequencerBlock atomic.Pointer[[]byte]
+	currentAuctionBlock atomic.Pointer[[]byte]
 }
 
 var (
@@ -44,17 +44,17 @@ var (
 	executionOptimisticBlockTimer = metrics.GetOrRegisterTimer("astria/optimistic/execute_optimistic_block_time", nil)
 )
 
-func NewOptimisticServiceV1Alpha(sharedServiceContainer *shared.SharedServiceContainer) *OptimisticServiceV1Alpha1 {
-	optimisticService := &OptimisticServiceV1Alpha1{
+func NewAuctionServiceV1Alpha1(sharedServiceContainer *shared.SharedServiceContainer) *AuctionServiceV1Alpha1 {
+	auctionService := &AuctionServiceV1Alpha1{
 		sharedServiceContainer: sharedServiceContainer,
 	}
 
-	optimisticService.currentOptimisticSequencerBlock.Store(&[]byte{})
+	auctionService.currentAuctionBlock.Store(&[]byte{})
 
-	return optimisticService
+	return auctionService
 }
 
-func (o *OptimisticServiceV1Alpha1) GetBidStream(_ *optimsticPb.GetBidStreamRequest, stream optimisticGrpc.AuctionService_GetBidStreamServer) error {
+func (o *AuctionServiceV1Alpha1) GetBidStream(_ *auctionPb.GetBidStreamRequest, stream auctionGrpc.AuctionService_GetBidStreamServer) error {
 	log.Debug("GetBidStream called")
 
 	pendingTxEventCh := make(chan core.NewTxsEvent)
@@ -69,7 +69,7 @@ func (o *OptimisticServiceV1Alpha1) GetBidStream(_ *optimsticPb.GetBidStreamRequ
 			optimisticBlock := o.Eth().BlockChain().CurrentOptimisticBlock()
 
 			for _, pendingTx := range pendingTxs.Txs {
-				bid := optimsticPb.Bid{}
+				bid := auctionPb.Bid{}
 
 				totalCost := big.NewInt(0)
 				effectiveTip := cmath.BigMin(pendingTx.GasTipCap(), new(big.Int).Sub(pendingTx.GasFeeCap(), optimisticBlock.BaseFee))
@@ -84,11 +84,11 @@ func (o *OptimisticServiceV1Alpha1) GetBidStream(_ *optimsticPb.GetBidStreamRequ
 
 				bid.Fee = totalCost.Uint64()
 				bid.Transactions = marshalledTxs
-				bid.SequencerParentBlockHash = *o.currentOptimisticSequencerBlock.Load()
+				bid.SequencerParentBlockHash = *o.currentAuctionBlock.Load()
 				bid.RollupParentBlockHash = optimisticBlock.Hash().Bytes()
 
 				txsStreamedCount.Inc(1)
-				err = stream.Send(&optimsticPb.GetBidStreamResponse{Bid: &bid})
+				err = stream.Send(&auctionPb.GetBidStreamResponse{Bid: &bid})
 				if err != nil {
 					log.Error("error sending bid over stream", "err", err)
 					return status.Error(codes.Internal, shared.WrapError(err, "error sending bid over stream").Error())
@@ -110,7 +110,7 @@ func (o *OptimisticServiceV1Alpha1) GetBidStream(_ *optimsticPb.GetBidStreamRequ
 	}
 }
 
-func (o *OptimisticServiceV1Alpha1) ExecuteOptimisticBlockStream(stream optimisticGrpc.OptimisticExecutionService_ExecuteOptimisticBlockStreamServer) error {
+func (o *AuctionServiceV1Alpha1) ExecuteOptimisticBlockStream(stream auctionGrpc.OptimisticExecutionService_ExecuteOptimisticBlockStreamServer) error {
 	log.Debug("ExecuteOptimisticBlockStream called")
 
 	mempoolClearingEventCh := make(chan core.NewMempoolCleared)
@@ -142,11 +142,12 @@ func (o *OptimisticServiceV1Alpha1) ExecuteOptimisticBlockStream(stream optimist
 		select {
 		case event := <-mempoolClearingEventCh:
 			if event.NewHead.Hash() != optimisticBlockHash {
+				log.Error("mempool not cleared after optimistic block execution", "expected_block_hash", optimisticBlockHash.String(), "actual_block_hash", event.NewHead.Hash().String())
 				return status.Error(codes.Internal, "failed to clear mempool after optimistic block execution")
 			}
-			o.currentOptimisticSequencerBlock.Store(&baseBlock.SequencerBlockHash)
+			o.currentAuctionBlock.Store(&baseBlock.SequencerBlockHash)
 			executeOptimisticBlockSuccessCount.Inc(1)
-			err = stream.Send(&optimsticPb.ExecuteOptimisticBlockStreamResponse{
+			err = stream.Send(&auctionPb.ExecuteOptimisticBlockStreamResponse{
 				Block:                  optimisticBlock,
 				BaseSequencerBlockHash: baseBlock.SequencerBlockHash,
 			})
@@ -167,7 +168,7 @@ func (o *OptimisticServiceV1Alpha1) ExecuteOptimisticBlockStream(stream optimist
 	}
 }
 
-func (o *OptimisticServiceV1Alpha1) ExecuteOptimisticBlock(ctx context.Context, req *optimsticPb.BaseBlock) (*astriaPb.Block, error) {
+func (o *AuctionServiceV1Alpha1) ExecuteOptimisticBlock(ctx context.Context, req *auctionPb.BaseBlock) (*astriaPb.Block, error) {
 	// we need to execute the optimistic block
 	log.Debug("ExecuteOptimisticBlock called", "timestamp", req.Timestamp, "sequencer_block_hash", common.BytesToHash(req.SequencerBlockHash).String())
 
@@ -246,62 +247,62 @@ func (o *OptimisticServiceV1Alpha1) ExecuteOptimisticBlock(ctx context.Context, 
 	return res, nil
 }
 
-func (o *OptimisticServiceV1Alpha1) Eth() *eth.Ethereum {
+func (o *AuctionServiceV1Alpha1) Eth() *eth.Ethereum {
 	return o.sharedServiceContainer.Eth()
 }
 
-func (o *OptimisticServiceV1Alpha1) Bc() *core.BlockChain {
+func (o *AuctionServiceV1Alpha1) Bc() *core.BlockChain {
 	return o.sharedServiceContainer.Bc()
 }
 
-func (o *OptimisticServiceV1Alpha1) SetGenesisInfoCalled(value bool) {
+func (o *AuctionServiceV1Alpha1) SetGenesisInfoCalled(value bool) {
 	o.sharedServiceContainer.SetGenesisInfoCalled(value)
 }
 
-func (o *OptimisticServiceV1Alpha1) GenesisInfoCalled() bool {
+func (o *AuctionServiceV1Alpha1) GenesisInfoCalled() bool {
 	return o.sharedServiceContainer.GenesisInfoCalled()
 }
 
-func (o *OptimisticServiceV1Alpha1) SetGetCommitmentStateCalled(value bool) {
+func (o *AuctionServiceV1Alpha1) SetGetCommitmentStateCalled(value bool) {
 	o.sharedServiceContainer.SetGetCommitmentStateCalled(value)
 }
 
-func (o *OptimisticServiceV1Alpha1) CommitmentStateCalled() bool {
+func (o *AuctionServiceV1Alpha1) CommitmentStateCalled() bool {
 	return o.sharedServiceContainer.CommitmentStateCalled()
 }
 
-func (o *OptimisticServiceV1Alpha1) CommitmentUpdateLock() *sync.Mutex {
+func (o *AuctionServiceV1Alpha1) CommitmentUpdateLock() *sync.Mutex {
 	return o.sharedServiceContainer.CommitmentUpdateLock()
 }
 
-func (o *OptimisticServiceV1Alpha1) BlockExecutionLock() *sync.Mutex {
+func (o *AuctionServiceV1Alpha1) BlockExecutionLock() *sync.Mutex {
 	return o.sharedServiceContainer.BlockExecutionLock()
 }
 
-func (o *OptimisticServiceV1Alpha1) NextFeeRecipient() common.Address {
+func (o *AuctionServiceV1Alpha1) NextFeeRecipient() common.Address {
 	return o.sharedServiceContainer.NextFeeRecipient()
 }
 
-func (o *OptimisticServiceV1Alpha1) SetNextFeeRecipient(feeRecipient common.Address) {
+func (o *AuctionServiceV1Alpha1) SetNextFeeRecipient(feeRecipient common.Address) {
 	o.sharedServiceContainer.SetNextFeeRecipient(feeRecipient)
 }
 
-func (o *OptimisticServiceV1Alpha1) BridgeAddresses() map[string]*params.AstriaBridgeAddressConfig {
+func (o *AuctionServiceV1Alpha1) BridgeAddresses() map[string]*params.AstriaBridgeAddressConfig {
 	return o.sharedServiceContainer.BridgeAddresses()
 }
 
-func (o *OptimisticServiceV1Alpha1) BridgeAllowedAssets() map[string]struct{} {
+func (o *AuctionServiceV1Alpha1) BridgeAllowedAssets() map[string]struct{} {
 	return o.sharedServiceContainer.BridgeAllowedAssets()
 }
 
-func (o *OptimisticServiceV1Alpha1) SyncMethodsCalled() bool {
+func (o *AuctionServiceV1Alpha1) SyncMethodsCalled() bool {
 	return o.sharedServiceContainer.SyncMethodsCalled()
 }
 
-func (o *OptimisticServiceV1Alpha1) AuctioneerAddress() string {
+func (o *AuctionServiceV1Alpha1) AuctioneerAddress() string {
 	return o.sharedServiceContainer.AuctioneerAddress()
 }
 
-func (o *OptimisticServiceV1Alpha1) AuctioneerStartHeight() uint64 {
+func (o *AuctionServiceV1Alpha1) AuctioneerStartHeight() uint64 {
 	return o.sharedServiceContainer.AuctioneerStartHeight()
 }
