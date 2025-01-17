@@ -8,6 +8,8 @@ import (
 	"testing"
 )
 
+// TODO - expand the args to this function to allow for more flexibility in the tests. We can maintain a `TestContext` struct
+// which contains various params such as the number of blocks to generate, the bridge addresses etc
 func SetupSharedService(t *testing.T, noOfBlocksToGenerate int) (*eth.Ethereum, *SharedServiceContainer, ed25519.PrivateKey, ed25519.PublicKey) {
 	t.Helper()
 	genesis, blocks, bridgeAddress, feeCollectorKey, auctioneerPrivKey, auctioneerPubKey := GenerateMergeChain(noOfBlocksToGenerate, true)
