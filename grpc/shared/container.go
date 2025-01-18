@@ -182,7 +182,6 @@ func (s *SharedServiceContainer) NextFeeRecipient() common.Address {
 	return *s.nextFeeRecipient.Load()
 }
 
-// assumes that the block execution lock is being held
 func (s *SharedServiceContainer) SetNextFeeRecipient(nextFeeRecipient common.Address) {
 	s.nextFeeRecipient.Store(&nextFeeRecipient)
 }

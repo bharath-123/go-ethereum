@@ -49,12 +49,6 @@ func pricedTransaction(nonce uint64, gaslimit uint64, gasprice *big.Int, key *ec
 	return tx
 }
 
-func bigIntToProtoU128(i *big.Int) *primitivev1.Uint128 {
-	lo := i.Uint64()
-	hi := new(big.Int).Rsh(i, 64).Uint64()
-	return &primitivev1.Uint128{Lo: lo, Hi: hi}
-}
-
 func testBlobTx() *types.Transaction {
 	return types.NewTx(&types.BlobTx{
 		Nonce: 1,
@@ -252,7 +246,7 @@ func TestValidateAndUnmarshallDepositTx(t *testing.T) {
 					Bech32M: generateBech32MAddress(),
 				},
 				Asset:                   bridgeAssetDenom,
-				Amount:                  bigIntToProtoU128(big.NewInt(1000000000000000000)),
+				Amount:                  BigIntToProtoU128(big.NewInt(1000000000000000000)),
 				RollupId:                &primitivev1.RollupId{Inner: make([]byte, 0)},
 				DestinationChainAddress: chainDestinationAddress.String(),
 				SourceTransactionId: &primitivev1.TransactionId{
@@ -269,7 +263,7 @@ func TestValidateAndUnmarshallDepositTx(t *testing.T) {
 					Bech32M: bridgeAddress,
 				},
 				Asset:                   invalidBridgeAssetDenom,
-				Amount:                  bigIntToProtoU128(big.NewInt(1000000000000000000)),
+				Amount:                  BigIntToProtoU128(big.NewInt(1000000000000000000)),
 				RollupId:                &primitivev1.RollupId{Inner: make([]byte, 0)},
 				DestinationChainAddress: chainDestinationAddress.String(),
 				SourceTransactionId: &primitivev1.TransactionId{
@@ -286,7 +280,7 @@ func TestValidateAndUnmarshallDepositTx(t *testing.T) {
 					Bech32M: invalidHeightBridgeAddressBech32m,
 				},
 				Asset:                   invalidHeightBridgeAssetDenom,
-				Amount:                  bigIntToProtoU128(big.NewInt(1000000000000000000)),
+				Amount:                  BigIntToProtoU128(big.NewInt(1000000000000000000)),
 				RollupId:                &primitivev1.RollupId{Inner: make([]byte, 0)},
 				DestinationChainAddress: chainDestinationAddress.String(),
 				SourceTransactionId: &primitivev1.TransactionId{
@@ -303,7 +297,7 @@ func TestValidateAndUnmarshallDepositTx(t *testing.T) {
 					Bech32M: bridgeAddress,
 				},
 				Asset:                   bridgeAssetDenom,
-				Amount:                  bigIntToProtoU128(big.NewInt(1000000000000000000)),
+				Amount:                  BigIntToProtoU128(big.NewInt(1000000000000000000)),
 				RollupId:                &primitivev1.RollupId{Inner: make([]byte, 0)},
 				DestinationChainAddress: chainDestinationAddress.String(),
 				SourceTransactionId: &primitivev1.TransactionId{
@@ -471,7 +465,7 @@ func TestUnbundleRollupData(t *testing.T) {
 			Bech32M: bridgeAddress,
 		},
 		Asset:                   bridgeAssetDenom,
-		Amount:                  bigIntToProtoU128(big.NewInt(1000000000000000000)),
+		Amount:                  BigIntToProtoU128(big.NewInt(1000000000000000000)),
 		RollupId:                &primitivev1.RollupId{Inner: make([]byte, 0)},
 		DestinationChainAddress: chainDestinationAddress.String(),
 		SourceTransactionId: &primitivev1.TransactionId{
@@ -578,7 +572,7 @@ func TestUnbundleRollupDataWithDuplicateAllocations(t *testing.T) {
 			Bech32M: bridgeAddress,
 		},
 		Asset:                   bridgeAssetDenom,
-		Amount:                  bigIntToProtoU128(big.NewInt(1000000000000000000)),
+		Amount:                  BigIntToProtoU128(big.NewInt(1000000000000000000)),
 		RollupId:                &primitivev1.RollupId{Inner: make([]byte, 0)},
 		DestinationChainAddress: chainDestinationAddress.String(),
 		SourceTransactionId: &primitivev1.TransactionId{
@@ -723,7 +717,7 @@ func TestUnbundleRollupDataWithDuplicateInvalidAllocations(t *testing.T) {
 			Bech32M: bridgeAddress,
 		},
 		Asset:                   bridgeAssetDenom,
-		Amount:                  bigIntToProtoU128(big.NewInt(1000000000000000000)),
+		Amount:                  BigIntToProtoU128(big.NewInt(1000000000000000000)),
 		RollupId:                &primitivev1.RollupId{Inner: make([]byte, 0)},
 		DestinationChainAddress: chainDestinationAddress.String(),
 		SourceTransactionId: &primitivev1.TransactionId{
