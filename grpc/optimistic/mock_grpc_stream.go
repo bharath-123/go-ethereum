@@ -15,7 +15,7 @@ type MockBidirectionalStreaming[K any, V any] struct {
 
 func (ms *MockBidirectionalStreaming[K, V]) Recv() (*K, error) {
 	// add a delay to make it look like an async stream
-	time.Sleep(2 * time.Second)
+	time.Sleep(500 * time.Millisecond)
 	if ms.requestCounter > uint64(len(ms.requestStream)-1) {
 		// end the stream after all the packets have been sent
 		return nil, io.EOF
@@ -33,15 +33,15 @@ func (ms *MockBidirectionalStreaming[K, V]) Send(res *V) error {
 }
 
 func (ms *MockBidirectionalStreaming[K, V]) SetHeader(md metadata.MD) error {
-	panic("implement me")
+	panic("implement SetHeader in the mock bi-directional grpc stream if used!")
 }
 
 func (ms *MockBidirectionalStreaming[K, V]) SendHeader(md metadata.MD) error {
-	panic("implement me")
+	panic("implement SendHeader in the mock bi-directional grpc stream if used!")
 }
 
 func (ms *MockBidirectionalStreaming[K, V]) SetTrailer(md metadata.MD) {
-	panic("implement me")
+	panic("implement SetTrailer in the mock bi-directional grpc stream if used!")
 }
 
 func (ms *MockBidirectionalStreaming[K, V]) Context() context.Context {
@@ -49,11 +49,11 @@ func (ms *MockBidirectionalStreaming[K, V]) Context() context.Context {
 }
 
 func (ms *MockBidirectionalStreaming[K, V]) SendMsg(m any) error {
-	panic("implement me")
+	panic("implement SendMsg in the mock bi-directional grpc stream if used!")
 }
 
 func (ms *MockBidirectionalStreaming[K, V]) RecvMsg(m any) error {
-	panic("implement me")
+	panic("implement RecvMsg in the mock bi-directional grpc stream if used!")
 }
 
 type MockServerSideStreaming[K any] struct {
@@ -62,7 +62,7 @@ type MockServerSideStreaming[K any] struct {
 
 func (ms *MockServerSideStreaming[K]) SendMsg(m any) error {
 	//TODO implement me
-	panic("implement me")
+	panic("implement SendMsg in the mock server-side grpc stream if used!")
 }
 
 func (ms *MockServerSideStreaming[K]) Send(res *K) error {
@@ -71,15 +71,15 @@ func (ms *MockServerSideStreaming[K]) Send(res *K) error {
 }
 
 func (ms *MockServerSideStreaming[K]) SetHeader(md metadata.MD) error {
-	panic("implement me")
+	panic("implement SetHeader in the mock server-side grpc stream if used!")
 }
 
 func (ms *MockServerSideStreaming[K]) SendHeader(md metadata.MD) error {
-	panic("implement me")
+	panic("implement SendHeader in the mock server-side grpc stream if used!")
 }
 
 func (ms *MockServerSideStreaming[K]) SetTrailer(md metadata.MD) {
-	panic("implement me")
+	panic("implement SetTrailer in the mock server-side grpc stream if used!")
 }
 
 func (ms *MockServerSideStreaming[K]) Context() context.Context {
@@ -87,5 +87,5 @@ func (ms *MockServerSideStreaming[K]) Context() context.Context {
 }
 
 func (ms *MockServerSideStreaming[K]) RecvMsg(m any) error {
-	panic("implement me")
+	panic("implement RecvMsg in the mock server-side grpc stream if used!")
 }

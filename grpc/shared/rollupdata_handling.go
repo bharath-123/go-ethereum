@@ -112,7 +112,7 @@ func validateAndUnmarshalDepositTx(
 	return types.NewTx(&txdata), nil
 }
 
-func validateAndUnmarshallSequenceAction(tx *sequencerblockv1.RollupData) (*types.Transaction, error) {
+func validateAndUnmarshalSequenceAction(tx *sequencerblockv1.RollupData) (*types.Transaction, error) {
 	ethTx := new(types.Transaction)
 	err := ethTx.UnmarshalBinary(tx.GetSequencedData())
 	if err != nil {
@@ -130,7 +130,7 @@ func validateAndUnmarshallSequenceAction(tx *sequencerblockv1.RollupData) (*type
 	return ethTx, nil
 }
 
-func unmarshallAllocationTxs(allocation *auctionv1alpha1.Allocation, prevBlockHash []byte, auctioneerBech32Address string, addressPrefix string) (types.Transactions, error) {
+func unmarshalAllocationTxs(allocation *auctionv1alpha1.Allocation, prevBlockHash []byte, auctioneerBech32Address string, addressPrefix string) (types.Transactions, error) {
 	unbundlingStart := time.Now()
 	defer allocationUnbundlingTimer.UpdateSince(unbundlingStart)
 
@@ -173,7 +173,7 @@ func unmarshallAllocationTxs(allocation *auctionv1alpha1.Allocation, prevBlockHa
 	signature := allocation.GetSignature()
 	if !ed25519.Verify(publicKey, message, signature) {
 		allocationsWithInvalidSignature.Inc(1)
-		return nil, fmt.Errorf("signature in allocation does not match the public key")
+		return nil, fmt.Errorf("signature in allocation is invalid")
 	}
 
 	log.Debug("Allocation is valid. Unmarshalling the transactions in the bid.")
@@ -206,7 +206,7 @@ func UnbundleRollupDataTransactions(txs []*sequencerblockv1.RollupData, height u
 	processedTxs := types.Transactions{}
 	allocationTxs := types.Transactions{}
 
-	var allocation *auctionv1alpha1.Allocation
+	foundAllocation := false
 
 	for _, tx := range txs {
 		if deposit := tx.GetDeposit(); deposit != nil {
@@ -220,31 +220,36 @@ func UnbundleRollupDataTransactions(txs []*sequencerblockv1.RollupData, height u
 		} else {
 			sequenceData := tx.GetSequencedData()
 
-			// check if sequence data is of type Allocation.
-			// we should expect only one valid allocation per block. duplicate allocations should be ignored.
-			tempAllocation := &auctionv1alpha1.Allocation{}
-			err := proto.Unmarshal(sequenceData, tempAllocation)
-			if err == nil {
-				if allocation != nil {
-					log.Debug("ignoring allocation tx as it is a duplicate", "height", height)
-				} else {
-					if height < auctioneerStartHeight {
-						log.Debug("ignoring allocation tx as it is before the auctioneer start height", "height", height, "auctioneerStartHeight", auctioneerStartHeight)
-						continue
-					}
+			if !foundAllocation {
+				if height < auctioneerStartHeight {
+					log.Debug("ignoring allocation tx as it is before the auctioneer start height", "height", height, "auctioneerStartHeight", auctioneerStartHeight)
+					continue
+				}
 
-					unmarshalledAllocationTxs, err := unmarshallAllocationTxs(tempAllocation, prevBlockHash, auctioneerBech32Address, addressPrefix)
+				// check if sequence data is of type Allocation.
+				// we should expect only one valid allocation per block. duplicate allocations should be ignored.
+				allocation := &auctionv1alpha1.Allocation{}
+				err := proto.Unmarshal(sequenceData, allocation)
+				if err == nil {
+					unmarshalledAllocationTxs, err := unmarshalAllocationTxs(allocation, prevBlockHash, auctioneerBech32Address, addressPrefix)
 					if err != nil {
 						log.Error("failed to unmarshall allocation transactions", "error", err)
 						continue
 					}
 
-					// we found the valid allocation, we should ignore all future allocations in this block
-					allocation = tempAllocation
+					// we found the valid allocation, we should ignore any other allocations in this block
 					allocationTxs = unmarshalledAllocationTxs
+					foundAllocation = true
+				} else {
+					ethtx, err := validateAndUnmarshalSequenceAction(tx)
+					if err != nil {
+						log.Error("failed to unmarshall sequence action", "error", err)
+						continue
+					}
+					processedTxs = append(processedTxs, ethtx)
 				}
 			} else {
-				ethtx, err := validateAndUnmarshallSequenceAction(tx)
+				ethtx, err := validateAndUnmarshalSequenceAction(tx)
 				if err != nil {
 					log.Error("failed to unmarshall sequence action", "error", err)
 					continue

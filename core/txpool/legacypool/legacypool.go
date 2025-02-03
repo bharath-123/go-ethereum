@@ -1411,7 +1411,7 @@ func (pool *LegacyPool) runReorg(done chan struct{}, reset *txpoolResetRequest, 
 		if pool.auctioneerEnabled {
 			// if we are running the pool as an auctioneer, then we should clear the mempool each time the head
 			// is reset
-			pool.clearPendingAndQueued(reset.newHead)
+			pool.clearPendingAndQueued()
 		} else {
 			// this is the current functionality of geth
 			pool.demoteUnexecutables()
@@ -1563,8 +1563,8 @@ func (pool *LegacyPool) reset(oldHead, newHead *types.Header) {
 	pool.addTxsLocked(reinject, false)
 }
 
-// reset retrieves the current state of the blockchain and ensures the content
-// of the transaction pool is valid with regard to the chain state.
+// resetHeadOnly retrieves the current state of the blockchain and sets the legacypool to validate
+// new queued transactions against this retrived state.
 func (pool *LegacyPool) resetHeadOnly(oldHead, newHead *types.Header) {
 	// Initialize the internal state to the current head
 	if newHead == nil {
@@ -1784,7 +1784,7 @@ func (pool *LegacyPool) truncateQueue() {
 
 // clearPendingAndQueued removes invalid and processed transactions from the pools
 // it assumes that the pool lock is being held
-func (pool *LegacyPool) clearPendingAndQueued(newHead *types.Header) {
+func (pool *LegacyPool) clearPendingAndQueued() {
 	// Iterate over all accounts and demote any non-executable transactions
 	addrsForWhichTxsRemoved := map[common.Address]bool{}
 

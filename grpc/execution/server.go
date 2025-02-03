@@ -73,18 +73,18 @@ func (s *ExecutionServiceServerV1) GetGenesisInfo(ctx context.Context, req *astr
 	log.Debug("GetGenesisInfo called")
 	getGenesisInfoRequestCount.Inc(1)
 
-	rollupHash := sha256.Sum256([]byte(s.Bc().Config().AstriaRollupName))
+	rollupHash := sha256.Sum256([]byte(s.bc().Config().AstriaRollupName))
 	rollupId := primitivev1.RollupId{Inner: rollupHash[:]}
 
 	res := &astriaPb.GenesisInfo{
 		RollupId:                    &rollupId,
-		SequencerGenesisBlockHeight: s.Bc().Config().AstriaSequencerInitialHeight,
-		CelestiaBlockVariance:       s.Bc().Config().AstriaCelestiaHeightVariance,
+		SequencerGenesisBlockHeight: s.bc().Config().AstriaSequencerInitialHeight,
+		CelestiaBlockVariance:       s.bc().Config().AstriaCelestiaHeightVariance,
 	}
 
 	log.Info("GetGenesisInfo completed", "response", res)
 	getGenesisInfoSuccessCount.Inc(1)
-	s.SetGenesisInfoCalled(true)
+	s.setGenesisInfoCalled(true)
 	return res, nil
 }
 
@@ -150,44 +150,44 @@ func (s *ExecutionServiceServerV1) ExecuteBlock(ctx context.Context, req *astria
 	log.Debug("ExecuteBlock called", "prevBlockHash", common.BytesToHash(req.PrevBlockHash), "tx_count", len(req.Transactions), "timestamp", req.Timestamp)
 	executeBlockRequestCount.Inc(1)
 
-	s.BlockExecutionLock().Lock()
-	defer s.BlockExecutionLock().Unlock()
+	s.blockExecutionLock().Lock()
+	defer s.blockExecutionLock().Unlock()
 	// Deliberately called after lock, to more directly measure the time spent executing
 	executionStart := time.Now()
 	defer executeBlockTimer.UpdateSince(executionStart)
 
-	if !s.SyncMethodsCalled() {
+	if !s.syncMethodsCalled() {
 		return nil, status.Error(codes.PermissionDenied, "Cannot execute block until GetGenesisInfo && GetCommitmentState methods are called")
 	}
 
 	// Validate block being created has valid previous hash
 	prevHeadHash := common.BytesToHash(req.PrevBlockHash)
-	softHash := s.Bc().CurrentSafeBlock().Hash()
+	softHash := s.bc().CurrentSafeBlock().Hash()
 	if prevHeadHash != softHash {
 		return nil, status.Error(codes.FailedPrecondition, "Block can only be created on top of soft block.")
 	}
 
 	// the height that this block will be at
-	height := s.Bc().CurrentBlock().Number.Uint64() + 1
+	height := s.bc().CurrentBlock().Number.Uint64() + 1
 
-	addressPrefix := s.Bc().Config().AstriaSequencerAddressPrefix
+	addressPrefix := s.bc().Config().AstriaSequencerAddressPrefix
 
-	txsToProcess := shared.UnbundleRollupDataTransactions(req.Transactions, height, s.BridgeAddresses(), s.BridgeAllowedAssets(), prevHeadHash.Bytes(), s.AuctioneerAddress(), s.AuctioneerStartHeight(), addressPrefix)
+	txsToProcess := shared.UnbundleRollupDataTransactions(req.Transactions, height, s.bridgeAddresses(), s.bridgeAllowedAssets(), prevHeadHash.Bytes(), s.auctioneerAddress(), s.auctioneerStartHeight(), addressPrefix)
 
 	// This set of ordered TXs on the TxPool is has been configured to be used by
 	// the Miner when building a payload.
-	s.Eth().TxPool().SetAstriaOrdered(txsToProcess)
+	s.eth().TxPool().SetAstriaOrdered(txsToProcess)
 
 	// Build a payload to add to the chain
 	payloadAttributes := &miner.BuildPayloadArgs{
 		Parent:                prevHeadHash,
 		Timestamp:             uint64(req.GetTimestamp().GetSeconds()),
 		Random:                common.Hash{},
-		FeeRecipient:          s.NextFeeRecipient(),
+		FeeRecipient:          s.nextFeeRecipient(),
 		OverrideTransactions:  types.Transactions{},
 		IsOptimisticExecution: false,
 	}
-	payload, err := s.Eth().Miner().BuildPayload(payloadAttributes)
+	payload, err := s.eth().Miner().BuildPayload(payloadAttributes)
 	if err != nil {
 		log.Error("failed to build payload", "err", err)
 		return nil, status.Errorf(codes.InvalidArgument, shared.WrapError(err, "Could not build block with provided txs").Error())
@@ -200,14 +200,14 @@ func (s *ExecutionServiceServerV1) ExecuteBlock(ctx context.Context, req *astria
 		log.Error("failed to convert executable data to block", err)
 		return nil, status.Error(codes.Internal, shared.WrapError(err, "failed to convert executable data to block").Error())
 	}
-	err = s.Bc().InsertBlockWithoutSetHead(block)
+	err = s.bc().InsertBlockWithoutSetHead(block)
 	if err != nil {
 		log.Error("failed to insert block to chain", "hash", block.Hash(), "prevHash", req.PrevBlockHash, "err", err)
 		return nil, status.Error(codes.Internal, shared.WrapError(err, "failed to insert block to chain").Error())
 	}
 
 	// remove txs from original mempool
-	s.Eth().TxPool().ClearAstriaOrdered()
+	s.eth().TxPool().ClearAstriaOrdered()
 
 	res := &astriaPb.Block{
 		Number:          uint32(block.NumberU64()),
@@ -218,16 +218,16 @@ func (s *ExecutionServiceServerV1) ExecuteBlock(ctx context.Context, req *astria
 		},
 	}
 
-	if next, ok := s.Bc().Config().AstriaFeeCollectors[res.Number+1]; ok {
-		s.SetNextFeeRecipient(next)
+	if next, ok := s.bc().Config().AstriaFeeCollectors[res.Number+1]; ok {
+		s.setNextFeeRecipient(next)
 	}
 
-	if address, ok := s.Bc().Config().AstriaAuctioneerAddresses[res.Number+1]; ok {
+	if address, ok := s.bc().Config().AstriaAuctioneerAddresses[res.Number+1]; ok {
 		if err := shared.ValidateBech32mAddress(address, addressPrefix); err != nil {
 			log.Error("auctioneer address is not a valid bech32 address", "block", res.Number+1, "address", address)
 		}
 
-		s.SetAuctioneerAddress(address)
+		s.setAuctioneerAddress(address)
 	}
 
 	log.Info("ExecuteBlock completed", "block_num", res.Number, "timestamp", res.Timestamp)
@@ -241,18 +241,18 @@ func (s *ExecutionServiceServerV1) GetCommitmentState(ctx context.Context, req *
 	log.Info("GetCommitmentState called")
 	getCommitmentStateRequestCount.Inc(1)
 
-	softBlock, err := ethHeaderToExecutionBlock(s.Bc().CurrentSafeBlock())
+	softBlock, err := ethHeaderToExecutionBlock(s.bc().CurrentSafeBlock())
 	if err != nil {
 		log.Error("error finding safe block", err)
 		return nil, status.Error(codes.Internal, shared.WrapError(err, "could not locate soft block").Error())
 	}
-	firmBlock, err := ethHeaderToExecutionBlock(s.Bc().CurrentFinalBlock())
+	firmBlock, err := ethHeaderToExecutionBlock(s.bc().CurrentFinalBlock())
 	if err != nil {
 		log.Error("error finding final block", err)
 		return nil, status.Error(codes.Internal, shared.WrapError(err, "could not locate firm block").Error())
 	}
 
-	celestiaBlock := s.Bc().CurrentBaseCelestiaHeight()
+	celestiaBlock := s.bc().CurrentBaseCelestiaHeight()
 
 	res := &astriaPb.CommitmentState{
 		Soft:               softBlock,
@@ -262,7 +262,7 @@ func (s *ExecutionServiceServerV1) GetCommitmentState(ctx context.Context, req *
 
 	log.Info("GetCommitmentState completed", "soft_height", res.Soft.Number, "firm_height", res.Firm.Number, "base_celestia_height", res.BaseCelestiaHeight)
 	getCommitmentStateSuccessCount.Inc(1)
-	s.SetGetCommitmentStateCalled(true)
+	s.setGetCommitmentStateCalled(true)
 	return res, nil
 }
 
@@ -279,15 +279,15 @@ func (s *ExecutionServiceServerV1) UpdateCommitmentState(ctx context.Context, re
 	commitmentUpdateStart := time.Now()
 	defer commitmentStateUpdateTimer.UpdateSince(commitmentUpdateStart)
 
-	s.CommitmentUpdateLock().Lock()
-	defer s.CommitmentUpdateLock().Unlock()
+	s.commitmentUpdateLock().Lock()
+	defer s.commitmentUpdateLock().Unlock()
 
-	if !s.SyncMethodsCalled() {
+	if !s.syncMethodsCalled() {
 		return nil, status.Error(codes.PermissionDenied, "Cannot update commitment state until GetGenesisInfo && GetCommitmentState methods are called")
 	}
 
-	if s.Bc().CurrentBaseCelestiaHeight() > req.CommitmentState.BaseCelestiaHeight {
-		errStr := fmt.Sprintf("Base Celestia height cannot be decreased, current_base_celestia_height: %d, new_base_celestia_height: %d", s.Bc().CurrentBaseCelestiaHeight(), req.CommitmentState.BaseCelestiaHeight)
+	if s.bc().CurrentBaseCelestiaHeight() > req.CommitmentState.BaseCelestiaHeight {
+		errStr := fmt.Sprintf("Base Celestia height cannot be decreased, current_base_celestia_height: %d, new_base_celestia_height: %d", s.bc().CurrentBaseCelestiaHeight(), req.CommitmentState.BaseCelestiaHeight)
 		return nil, status.Error(codes.InvalidArgument, errStr)
 	}
 
@@ -295,50 +295,50 @@ func (s *ExecutionServiceServerV1) UpdateCommitmentState(ctx context.Context, re
 	firmEthHash := common.BytesToHash(req.CommitmentState.Firm.Hash)
 
 	// Validate that the firm and soft blocks exist before going further
-	softBlock := s.Bc().GetBlockByHash(softEthHash)
+	softBlock := s.bc().GetBlockByHash(softEthHash)
 	if softBlock == nil {
 		return nil, status.Error(codes.InvalidArgument, "Soft block specified does not exist")
 	}
-	firmBlock := s.Bc().GetBlockByHash(firmEthHash)
+	firmBlock := s.bc().GetBlockByHash(firmEthHash)
 	if firmBlock == nil {
 		return nil, status.Error(codes.InvalidArgument, "Firm block specified does not exist")
 	}
 
-	currentHead := s.Bc().CurrentBlock().Hash()
+	currentHead := s.bc().CurrentBlock().Hash()
 
 	// Update the canonical chain to soft block. We must do this before last
 	// validation step since there is no way to check if firm block descends from
 	// anything but the canonical chain
 	if currentHead != softEthHash {
-		if _, err := s.Bc().SetCanonical(softBlock); err != nil {
+		if _, err := s.bc().SetCanonical(softBlock); err != nil {
 			log.Error("failed updating canonical chain to soft block", err)
 			return nil, status.Error(codes.Internal, shared.WrapError(err, "Could not update head to safe hash").Error())
 		}
 	}
 
 	// Once head is updated validate that firm belongs to chain
-	rollbackBlock := s.Bc().GetBlockByHash(currentHead)
-	if s.Bc().GetCanonicalHash(firmBlock.NumberU64()) != firmEthHash {
+	rollbackBlock := s.bc().GetBlockByHash(currentHead)
+	if s.bc().GetCanonicalHash(firmBlock.NumberU64()) != firmEthHash {
 		log.Error("firm block not found in canonical chain defined by soft block, rolling back")
 
-		if _, err := s.Bc().SetCanonical(rollbackBlock); err != nil {
+		if _, err := s.bc().SetCanonical(rollbackBlock); err != nil {
 			panic("rollback to previous head after failed validation failed")
 		}
 
 		return nil, status.Error(codes.InvalidArgument, "soft block in request is not a descendant of the current firmly committed block")
 	}
 
-	s.Eth().SetSynced()
+	s.eth().SetSynced()
 
 	// Updating the safe and final after everything validated
-	currentSafe := s.Bc().CurrentSafeBlock().Hash()
+	currentSafe := s.bc().CurrentSafeBlock().Hash()
 	if currentSafe != softEthHash {
-		s.Bc().SetSafe(softBlock.Header())
+		s.bc().SetSafe(softBlock.Header())
 	}
 
-	currentFirm := s.Bc().CurrentFinalBlock().Hash()
+	currentFirm := s.bc().CurrentFinalBlock().Hash()
 	if currentFirm != firmEthHash {
-		s.Bc().SetCelestiaFinalized(firmBlock.Header(), req.CommitmentState.BaseCelestiaHeight)
+		s.bc().SetCelestiaFinalized(firmBlock.Header(), req.CommitmentState.BaseCelestiaHeight)
 	}
 
 	log.Info("UpdateCommitmentState completed", "soft_height", softBlock.NumberU64(), "firm_height", firmBlock.NumberU64())
@@ -354,9 +354,9 @@ func (s *ExecutionServiceServerV1) getBlockFromIdentifier(identifier *astriaPb.B
 	// Grab the header based on the identifier provided
 	switch idType := identifier.Identifier.(type) {
 	case *astriaPb.BlockIdentifier_BlockNumber:
-		header = s.Bc().GetHeaderByNumber(uint64(identifier.GetBlockNumber()))
+		header = s.bc().GetHeaderByNumber(uint64(identifier.GetBlockNumber()))
 	case *astriaPb.BlockIdentifier_BlockHash:
-		header = s.Bc().GetHeaderByHash(common.BytesToHash(identifier.GetBlockHash()))
+		header = s.bc().GetHeaderByHash(common.BytesToHash(identifier.GetBlockHash()))
 	default:
 		return nil, status.Errorf(codes.InvalidArgument, "identifier has unexpected type %T", idType)
 	}
@@ -389,66 +389,66 @@ func ethHeaderToExecutionBlock(header *types.Header) (*astriaPb.Block, error) {
 	}, nil
 }
 
-func (s *ExecutionServiceServerV1) Eth() *eth.Ethereum {
+func (s *ExecutionServiceServerV1) eth() *eth.Ethereum {
 	return s.sharedServiceContainer.Eth()
 }
 
-func (s *ExecutionServiceServerV1) Bc() *core.BlockChain {
+func (s *ExecutionServiceServerV1) bc() *core.BlockChain {
 	return s.sharedServiceContainer.Bc()
 }
 
-func (s *ExecutionServiceServerV1) SetGenesisInfoCalled(value bool) {
+func (s *ExecutionServiceServerV1) setGenesisInfoCalled(value bool) {
 	s.sharedServiceContainer.SetGenesisInfoCalled(value)
 }
 
-func (s *ExecutionServiceServerV1) GenesisInfoCalled() bool {
+func (s *ExecutionServiceServerV1) genesisInfoCalled() bool {
 	return s.sharedServiceContainer.GenesisInfoCalled()
 }
 
-func (s *ExecutionServiceServerV1) SetGetCommitmentStateCalled(value bool) {
+func (s *ExecutionServiceServerV1) setGetCommitmentStateCalled(value bool) {
 	s.sharedServiceContainer.SetGetCommitmentStateCalled(value)
 }
 
-func (s *ExecutionServiceServerV1) CommitmentStateCalled() bool {
+func (s *ExecutionServiceServerV1) commitmentStateCalled() bool {
 	return s.sharedServiceContainer.CommitmentStateCalled()
 }
 
-func (s *ExecutionServiceServerV1) CommitmentUpdateLock() *sync.Mutex {
+func (s *ExecutionServiceServerV1) commitmentUpdateLock() *sync.Mutex {
 	return s.sharedServiceContainer.CommitmentUpdateLock()
 }
 
-func (s *ExecutionServiceServerV1) BlockExecutionLock() *sync.Mutex {
+func (s *ExecutionServiceServerV1) blockExecutionLock() *sync.Mutex {
 	return s.sharedServiceContainer.BlockExecutionLock()
 }
 
-func (s *ExecutionServiceServerV1) NextFeeRecipient() common.Address {
+func (s *ExecutionServiceServerV1) nextFeeRecipient() common.Address {
 	return s.sharedServiceContainer.NextFeeRecipient()
 }
 
-func (s *ExecutionServiceServerV1) SetNextFeeRecipient(feeRecipient common.Address) {
+func (s *ExecutionServiceServerV1) setNextFeeRecipient(feeRecipient common.Address) {
 	s.sharedServiceContainer.SetNextFeeRecipient(feeRecipient)
 }
 
-func (s *ExecutionServiceServerV1) BridgeAddresses() map[string]*params.AstriaBridgeAddressConfig {
+func (s *ExecutionServiceServerV1) bridgeAddresses() map[string]*params.AstriaBridgeAddressConfig {
 	return s.sharedServiceContainer.BridgeAddresses()
 }
 
-func (s *ExecutionServiceServerV1) BridgeAllowedAssets() map[string]struct{} {
+func (s *ExecutionServiceServerV1) bridgeAllowedAssets() map[string]struct{} {
 	return s.sharedServiceContainer.BridgeAllowedAssets()
 }
 
-func (s *ExecutionServiceServerV1) SyncMethodsCalled() bool {
+func (s *ExecutionServiceServerV1) syncMethodsCalled() bool {
 	return s.sharedServiceContainer.SyncMethodsCalled()
 }
 
-func (s *ExecutionServiceServerV1) AuctioneerAddress() string {
+func (s *ExecutionServiceServerV1) auctioneerAddress() string {
 	return s.sharedServiceContainer.AuctioneerAddress()
 }
 
-func (s *ExecutionServiceServerV1) SetAuctioneerAddress(auctioneerAddress string) {
+func (s *ExecutionServiceServerV1) setAuctioneerAddress(auctioneerAddress string) {
 	s.sharedServiceContainer.SetAuctioneerAddress(auctioneerAddress)
 }
 
-func (s *ExecutionServiceServerV1) AuctioneerStartHeight() uint64 {
+func (s *ExecutionServiceServerV1) auctioneerStartHeight() uint64 {
 	return s.sharedServiceContainer.AuctioneerStartHeight()
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/bech32"
 )
 
+// Address represents an astria bech32m address like astria15q8wxcwqglzwxfpk54qku0ktutfuftw3eeptd6
 type Address struct {
 	address string
 	prefix  string

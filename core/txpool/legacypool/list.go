@@ -406,7 +406,6 @@ func (l *list) ClearList() (types.Transactions, types.Transactions) {
 		return nil, nil
 	}
 
-	// TODO: we might not need the code below
 	var invalids types.Transactions
 	// If the list was strict, filter anything above the lowest nonce
 	if l.strict {

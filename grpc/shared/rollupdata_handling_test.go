@@ -174,7 +174,7 @@ func TestUnmarshallAllocationTxs(t *testing.T) {
 			},
 			prevBlockHash:  []byte("prev rollup block hash"),
 			expectedOutput: types.Transactions{},
-			wantErr:        "signature in allocation does not match the public key",
+			wantErr:        "signature in allocation is invalid",
 		},
 		{
 			description: "valid allocation",
@@ -194,7 +194,7 @@ func TestUnmarshallAllocationTxs(t *testing.T) {
 			allocation, err := test.allocationInfo.convertToAllocation()
 			require.NoError(t, err, "failed to convert allocation info to allocation: %v", err)
 
-			finalTxs, err := unmarshallAllocationTxs(allocation, test.prevBlockHash, serviceV1Alpha1.AuctioneerAddress(), addressPrefix)
+			finalTxs, err := unmarshalAllocationTxs(allocation, test.prevBlockHash, serviceV1Alpha1.AuctioneerAddress(), addressPrefix)
 			if test.wantErr == "" && err == nil {
 				for _, tx := range test.expectedOutput {
 					foundTx := false
@@ -376,7 +376,7 @@ func TestValidateAndUnmarshallSequenceAction(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.description, func(t *testing.T) {
-			_, err := validateAndUnmarshallSequenceAction(test.sequencerTx)
+			_, err := validateAndUnmarshalSequenceAction(test.sequencerTx)
 			if test.wantErr == "" && err == nil {
 				return
 			}
