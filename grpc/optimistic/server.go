@@ -88,6 +88,7 @@ func (o *AuctionServiceV1Alpha1) GetBidStream(_ *auctionPb.GetBidStreamRequest, 
 				bid.RollupParentBlockHash = optimisticBlock.Hash().Bytes()
 
 				txsStreamedCount.Inc(1)
+				log.Debug("streaming bid", "tx", pendingTx.Hash(), "tip", bid.Fee, "parent_block_hash", common.BytesToHash(bid.GetRollupParentBlockHash()).String(), "sequencer_block_hash", common.BytesToHash(bid.GetSequencerParentBlockHash()).String())
 				err = stream.Send(&auctionPb.GetBidStreamResponse{Bid: &bid})
 				if err != nil {
 					log.Error("error sending bid over stream", "err", err)
