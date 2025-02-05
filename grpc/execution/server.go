@@ -5,6 +5,7 @@
 package execution
 
 import (
+	sequencerblockv1 "buf.build/gen/go/astria/sequencerblock-apis/protocolbuffers/go/astria/sequencerblock/v1"
 	"context"
 	"crypto/sha256"
 	"fmt"
@@ -172,7 +173,7 @@ func (s *ExecutionServiceServerV1) ExecuteBlock(ctx context.Context, req *astria
 
 	addressPrefix := s.bc().Config().AstriaSequencerAddressPrefix
 
-	txsToProcess := shared.UnbundleRollupDataTransactions(req.Transactions, height, s.bridgeAddresses(), s.bridgeAllowedAssets(), prevHeadHash.Bytes(), s.auctioneerAddress(), s.auctioneerStartHeight(), addressPrefix)
+	txsToProcess := s.unbundleRollupDataTransactions(req.Transactions, height, prevHeadHash.Bytes())
 
 	// This set of ordered TXs on the TxPool is has been configured to be used by
 	// the Miner when building a payload.
@@ -451,4 +452,8 @@ func (s *ExecutionServiceServerV1) setAuctioneerAddress(auctioneerAddress string
 
 func (s *ExecutionServiceServerV1) auctioneerStartHeight() uint64 {
 	return s.sharedServiceContainer.AuctioneerStartHeight()
+}
+
+func (s *ExecutionServiceServerV1) unbundleRollupDataTransactions(txs []*sequencerblockv1.RollupData, height uint64, prevBlockHash []byte) types.Transactions {
+	return s.sharedServiceContainer.UnbundleRollupDataTransactions(txs, height, prevBlockHash)
 }

@@ -4,12 +4,14 @@ import (
 	auctionGrpc "buf.build/gen/go/astria/execution-apis/grpc/go/astria/auction/v1alpha1/auctionv1alpha1grpc"
 	auctionPb "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/auction/v1alpha1"
 	astriaPb "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/execution/v1"
+	sequencerblockv1 "buf.build/gen/go/astria/sequencerblock-apis/protocolbuffers/go/astria/sequencerblock/v1"
 	"context"
 	"errors"
 	"github.com/ethereum/go-ethereum/beacon/engine"
 	"github.com/ethereum/go-ethereum/common"
 	cmath "github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth"
 	"github.com/ethereum/go-ethereum/grpc/shared"
 	"github.com/ethereum/go-ethereum/log"
@@ -193,9 +195,7 @@ func (o *AuctionServiceV1Alpha1) ExecuteOptimisticBlock(ctx context.Context, req
 	// the height that this block will be at
 	height := o.bc().CurrentBlock().Number.Uint64() + 1
 
-	addressPrefix := o.bc().Config().AstriaSequencerAddressPrefix
-
-	txsToProcess := shared.UnbundleRollupDataTransactions(req.Transactions, height, o.bridgeAddresses(), o.bridgeAllowedAssets(), softBlock.Hash().Bytes(), o.auctioneerAddress(), o.auctioneerStartHeight(), addressPrefix)
+	txsToProcess := o.unbundleRollupDataTransactions(req.Transactions, height, softBlock.Hash().Bytes())
 
 	// Build a payload to add to the chain
 	payloadAttributes := &miner.BuildPayloadArgs{
@@ -306,4 +306,8 @@ func (o *AuctionServiceV1Alpha1) auctioneerAddress() string {
 
 func (o *AuctionServiceV1Alpha1) auctioneerStartHeight() uint64 {
 	return o.sharedServiceContainer.AuctioneerStartHeight()
+}
+
+func (o *AuctionServiceV1Alpha1) unbundleRollupDataTransactions(txs []*sequencerblockv1.RollupData, height uint64, prevBlockHash []byte) types.Transactions {
+	return o.sharedServiceContainer.UnbundleRollupDataTransactions(txs, height, prevBlockHash)
 }

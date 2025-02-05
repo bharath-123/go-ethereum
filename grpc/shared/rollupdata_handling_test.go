@@ -389,8 +389,6 @@ func TestValidateAndUnmarshallSequenceAction(t *testing.T) {
 func TestUnbundleRollupData(t *testing.T) {
 	ethservice, serviceV1Alpha1, auctioneerPrivKey, auctioneerPubKey := SetupSharedService(t, 10)
 
-	addressPrefix := ethservice.BlockChain().Config().AstriaSequencerAddressPrefix
-
 	baseSequencerBlockHash := []byte("sequencer block hash")
 	prevRollupBlockHash := []byte("prev rollup block hash")
 
@@ -476,7 +474,7 @@ func TestUnbundleRollupData(t *testing.T) {
 
 	finalTxs := []*sequencerblockv1.RollupData{seqData1, seqData2, allocationSequenceData, depositTx}
 
-	txsToProcess := UnbundleRollupDataTransactions(finalTxs, 2, serviceV1Alpha1.BridgeAddresses(), serviceV1Alpha1.BridgeAllowedAssets(), prevRollupBlockHash, serviceV1Alpha1.AuctioneerAddress(), serviceV1Alpha1.AuctioneerStartHeight(), addressPrefix)
+	txsToProcess := serviceV1Alpha1.UnbundleRollupDataTransactions(finalTxs, 2, prevRollupBlockHash)
 
 	require.Equal(t, txsToProcess.Len(), 6, "expected 6 txs to process")
 
@@ -490,7 +488,6 @@ func TestUnbundleRollupData(t *testing.T) {
 
 func TestUnbundleRollupDataWithDuplicateAllocations(t *testing.T) {
 	ethservice, serviceV1Alpha1, auctioneerPrivKey, auctioneerPubKey := SetupSharedService(t, 10)
-	addressPrefix := ethservice.BlockChain().Config().AstriaSequencerAddressPrefix
 
 	baseSequencerBlockHash := []byte("sequencer block hash")
 	prevRollupBlockHash := []byte("prev rollup block hash")
@@ -583,7 +580,7 @@ func TestUnbundleRollupDataWithDuplicateAllocations(t *testing.T) {
 
 	finalTxs := []*sequencerblockv1.RollupData{seqData1, seqData2, allocationSequenceData, allocationSequenceData2, depositTx}
 
-	txsToProcess := UnbundleRollupDataTransactions(finalTxs, 2, serviceV1Alpha1.BridgeAddresses(), serviceV1Alpha1.BridgeAllowedAssets(), prevRollupBlockHash, serviceV1Alpha1.AuctioneerAddress(), serviceV1Alpha1.AuctioneerStartHeight(), addressPrefix)
+	txsToProcess := serviceV1Alpha1.UnbundleRollupDataTransactions(finalTxs, 2, prevRollupBlockHash)
 
 	require.Equal(t, txsToProcess.Len(), 6, "expected 6 txs to process")
 
@@ -597,7 +594,6 @@ func TestUnbundleRollupDataWithDuplicateAllocations(t *testing.T) {
 
 func TestUnbundleRollupDataWithDuplicateInvalidAllocations(t *testing.T) {
 	ethservice, serviceV1Alpha1, auctioneerPrivKey, auctioneerPubKey := SetupSharedService(t, 10)
-	addressPrefix := ethservice.BlockChain().Config().AstriaSequencerAddressPrefix
 
 	baseSequencerBlockHash := []byte("sequencer block hash")
 	prevRollupBlockHash := []byte("prev rollup block hash")
@@ -728,7 +724,7 @@ func TestUnbundleRollupDataWithDuplicateInvalidAllocations(t *testing.T) {
 
 	finalTxs := []*sequencerblockv1.RollupData{seqData1, seqData2, allocationSequenceData, invalidAllocationSequenceData, depositTx}
 
-	txsToProcess := UnbundleRollupDataTransactions(finalTxs, 2, serviceV1Alpha1.BridgeAddresses(), serviceV1Alpha1.BridgeAllowedAssets(), prevRollupBlockHash, serviceV1Alpha1.AuctioneerAddress(), serviceV1Alpha1.AuctioneerStartHeight(), addressPrefix)
+	txsToProcess := serviceV1Alpha1.UnbundleRollupDataTransactions(finalTxs, 2, prevRollupBlockHash)
 
 	require.Equal(t, txsToProcess.Len(), 6, "expected 6 txs to process")
 

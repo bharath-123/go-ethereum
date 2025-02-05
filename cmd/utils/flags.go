@@ -18,7 +18,6 @@
 package utils
 
 import (
-	auctionGrpc "buf.build/gen/go/astria/execution-apis/grpc/go/astria/auction/v1alpha1/auctionv1alpha1grpc"
 	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
@@ -36,6 +35,7 @@ import (
 	"strings"
 	"time"
 
+	auctionGrpc "buf.build/gen/go/astria/execution-apis/grpc/go/astria/auction/v1alpha1/auctionv1alpha1grpc"
 	astriaGrpc "buf.build/gen/go/astria/execution-apis/grpc/go/astria/execution/v1/executionv1grpc"
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/accounts/keystore"

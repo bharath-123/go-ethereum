@@ -1,13 +1,17 @@
 package shared
 
 import (
+	auctionv1alpha1 "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/auction/v1alpha1"
+	sequencerblockv1 "buf.build/gen/go/astria/sequencerblock-apis/protocolbuffers/go/astria/sequencerblock/v1"
 	"errors"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/golang/protobuf/proto"
 	"sync"
 	"sync/atomic"
 )
@@ -103,28 +107,31 @@ func NewSharedServiceContainer(eth *eth.Ethereum) (*SharedServiceContainer, erro
 		}
 	}
 
-	if bc.Config().AstriaAuctioneerAddresses == nil {
-		return nil, errors.New("auctioneer addresses not set")
-	}
-
-	maxHeightCollectorMatch := uint32(0)
 	auctioneerAddress := ""
-	for height, address := range bc.Config().AstriaAuctioneerAddresses {
-		if height <= nextBlock && height > maxHeightCollectorMatch {
-			maxHeightCollectorMatch = height
-
-			if err := ValidateBech32mAddress(address, bc.Config().AstriaSequencerAddressPrefix); err != nil {
-				return nil, WrapError(err, fmt.Sprintf("auctioneer address %s at height %d is invalid", address, height))
-			}
-			auctioneerAddress = address
-		}
-	}
-
-	// the height at which the first auctioneer address is activated
+	// the height at which the first auctioneer address is activated.
+	// if auctioneer addresses are not set, this height will be set to ^uint64(0) which is the max value of uint64
+	// this will cause all allocations to be ignored until auctioneer address is set
 	auctioneerStartHeight := ^uint64(0)
-	for height := range bc.Config().AstriaAuctioneerAddresses {
-		if uint64(height) < auctioneerStartHeight {
-			auctioneerStartHeight = uint64(height)
+	if bc.Config().AstriaAuctioneerAddresses == nil {
+		log.Warn("auctioneer addresses not set. allocations will be ignored until auctioneer address is set")
+	} else {
+
+		maxHeightCollectorMatch := uint32(0)
+		for height, address := range bc.Config().AstriaAuctioneerAddresses {
+			if height <= nextBlock && height > maxHeightCollectorMatch {
+				maxHeightCollectorMatch = height
+
+				if err := ValidateBech32mAddress(address, bc.Config().AstriaSequencerAddressPrefix); err != nil {
+					return nil, WrapError(err, fmt.Sprintf("auctioneer address %s at height %d is invalid", address, height))
+				}
+				auctioneerAddress = address
+			}
+		}
+
+		for height := range bc.Config().AstriaAuctioneerAddresses {
+			if uint64(height) < auctioneerStartHeight {
+				auctioneerStartHeight = uint64(height)
+			}
 		}
 	}
 
@@ -140,6 +147,71 @@ func NewSharedServiceContainer(eth *eth.Ethereum) (*SharedServiceContainer, erro
 	sharedServiceContainer.SetNextFeeRecipient(nextFeeRecipient)
 
 	return sharedServiceContainer, nil
+}
+
+// `UnbundleRollupDataTransactions` takes in a list of rollup data transactions and returns the corresponding
+// list of Ethereum transactions.
+// If it finds any `Allocation` type, it validates it and places the txs in the `Allocation` at the top of block.
+// Note that `UnbundleRollupDataTransactions` does not return any error on an invalid `RollupData`. If we find any invalid
+// `RollupData` we log the error and continue processing the rest of the transactions. We do not want to break control flow
+// for an invalid transaction as we do not want to interrupt block production.
+func (s *SharedServiceContainer) UnbundleRollupDataTransactions(txs []*sequencerblockv1.RollupData, height uint64, prevBlockHash []byte) types.Transactions {
+
+	processedTxs := types.Transactions{}
+	allocationTxs := types.Transactions{}
+
+	foundAllocation := false
+
+	for _, tx := range txs {
+		if deposit := tx.GetDeposit(); deposit != nil {
+			depositTx, err := validateAndUnmarshalDepositTx(deposit, height, s.BridgeAddresses(), s.BridgeAllowedAssets())
+			if err != nil {
+				log.Error("failed to validate and unmarshal deposit tx", "error", err)
+				continue
+			}
+
+			processedTxs = append(processedTxs, depositTx)
+		} else {
+			sequenceData := tx.GetSequencedData()
+
+			if !foundAllocation && height >= s.AuctioneerStartHeight() {
+				// check if sequence data is of type Allocation.
+				// we should expect only one valid allocation per block. duplicate allocations should be ignored.
+				allocation := &auctionv1alpha1.Allocation{}
+				err := proto.Unmarshal(sequenceData, allocation)
+				if err == nil {
+					unmarshalledAllocationTxs, err := unmarshalAllocationTxs(allocation, prevBlockHash, s.AuctioneerAddress(), s.Bc().Config().AstriaSequencerAddressPrefix)
+					if err != nil {
+						log.Error("failed to unmarshall allocation transactions", "error", err)
+						continue
+					}
+
+					// we found the valid allocation, we should ignore any other allocations in this block
+					allocationTxs = unmarshalledAllocationTxs
+					foundAllocation = true
+				} else {
+					ethtx, err := validateAndUnmarshalSequenceAction(tx)
+					if err != nil {
+						log.Error("failed to unmarshall sequence action", "error", err)
+						continue
+					}
+					processedTxs = append(processedTxs, ethtx)
+				}
+			} else {
+				ethtx, err := validateAndUnmarshalSequenceAction(tx)
+				if err != nil {
+					log.Error("failed to unmarshall sequence action", "error", err)
+					continue
+				}
+				processedTxs = append(processedTxs, ethtx)
+			}
+		}
+	}
+
+	// prepend allocation txs to processedTxs
+	processedTxs = append(allocationTxs, processedTxs...)
+
+	return processedTxs
 }
 
 func (s *SharedServiceContainer) SyncMethodsCalled() bool {
