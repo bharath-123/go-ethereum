@@ -1760,7 +1760,6 @@ func (s *TransactionAPI) sign(addr common.Address, tx *types.Transaction) (*type
 
 // SubmitTransaction is a helper function that submits tx to txPool and logs a message.
 func SubmitTransaction(ctx context.Context, b Backend, tx *types.Transaction) (common.Hash, error) {
-	log.Info("BHARATH: In send tx!", "auctioneerEnabled", b.AuctioneerEnabled())
 	// if we are running the flame node in auctioneer mode. we need to reject transactions being sent if the optimistic block
 	// height deviates from the soft block height by more than 1 block. The optimistic block is either one block ahead of the
 	// soft block or is at the same height as that of the soft block.
