@@ -311,6 +311,7 @@ func (b *backendMock) setFork(fork string) error {
 	return nil
 }
 
+func (b *backendMock) AuctioneerEnabled() bool { return false }
 func (b *backendMock) SuggestGasTipCap(ctx context.Context) (*big.Int, error) {
 	return big.NewInt(42), nil
 }

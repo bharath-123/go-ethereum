@@ -59,6 +59,7 @@ const estimateGasErrorRatio = 0.015
 
 var errBlobTxNotSupported = errors.New("blob transactions not supported")
 var errDepositTxNotSupported = errors.New("deposit transactions not supported")
+var errOptimisticBlockBehind = errors.New("optimistic block production is behind. tx sending will be enabled once optimistic block production resumes")
 
 // EthereumAPI provides an API to access Ethereum related information.
 type EthereumAPI struct {
@@ -1759,6 +1760,37 @@ func (s *TransactionAPI) sign(addr common.Address, tx *types.Transaction) (*type
 
 // SubmitTransaction is a helper function that submits tx to txPool and logs a message.
 func SubmitTransaction(ctx context.Context, b Backend, tx *types.Transaction) (common.Hash, error) {
+	log.Info("BHARATH: In send tx!", "auctioneerEnabled", b.AuctioneerEnabled())
+	// if we are running the flame node in auctioneer mode. we need to reject transactions being sent if the optimistic block
+	// height deviates from the soft block height by more than 1 block. The optimistic block is either one block ahead of the
+	// soft block or is at the same height as that of the soft block.
+	// If the soft block deviates from the optimistic block by more than 1 block, then we risk validating searcher transactions
+	// on older state since we do stateful validation of searcher txs on optimistic blocks. This is an undesirable situation and we
+	// ideally want to fix this deviation between optimistic blocks and soft blocks before allowing searchers to submit txs.
+	if b.AuctioneerEnabled() {
+		optimisticBlock, err := b.BlockByNumber(ctx, rpc.OptimisticBlockNumber)
+		if err != nil {
+			return common.Hash{}, err
+		}
+		softBlock, err := b.BlockByNumber(ctx, rpc.SafeBlockNumber)
+		if err != nil {
+			return common.Hash{}, err
+		}
+
+		// it is enough to check if the soft block height is more than the optimistic block height as a condition to detect issues with
+		// optimistic block execution. We take the below conditions to understand why:
+		// can we have optimistic_block.height > soft block.height? Optimistic block can only be greater than soft block by 1 block at any given point.
+		// this is because the optimistic block is always built on top of the current parent block. This case can never happen
+		// can we have optimistic_block.height == soft_block.height? This happens when conductor executes the soft block after auctioneer successfully
+		// executes the optimistic block. It is a scenario we expect to happen.
+		// can we have optimistic_block.height < soft_block.height. This should never happen. This can happen when optimistic block execution
+		// stops for w/e reason. If this happens we should disallow searchers from being able to send transactions.
+		if softBlock.Number().Cmp(optimisticBlock.Number()) > 0 {
+			log.Error("Optimistic block is behind soft block", "optimisticBlock", optimisticBlock.Number(), "softBlock", softBlock.Number())
+			return common.Hash{}, errOptimisticBlockBehind
+		}
+	}
+
 	if tx.Type() == types.BlobTxType {
 		return common.Hash{}, errBlobTxNotSupported
 	}
