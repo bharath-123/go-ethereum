@@ -77,14 +77,14 @@ func TestExecutionServiceV1_GetBlock(t *testing.T) {
 			getBlockRequst: &astriaPb.GetBlockRequest{
 				Identifier: &astriaPb.BlockIdentifier{Identifier: &astriaPb.BlockIdentifier_BlockNumber{BlockNumber: 1}},
 			},
-			expectedReturnCode: 0,
+			expectedReturnCode: codes.OK,
 		},
 		{
 			description: "Get block by block hash",
 			getBlockRequst: &astriaPb.GetBlockRequest{
 				Identifier: &astriaPb.BlockIdentifier{Identifier: &astriaPb.BlockIdentifier_BlockHash{BlockHash: ethservice.BlockChain().GetBlockByNumber(4).Hash().Bytes()}},
 			},
-			expectedReturnCode: 0,
+			expectedReturnCode: codes.OK,
 		},
 		{
 			description: "Get block which is not present",
@@ -143,7 +143,7 @@ func TestExecutionServiceServerV1_BatchGetBlocks(t *testing.T) {
 					{Identifier: &astriaPb.BlockIdentifier_BlockHash{BlockHash: ethservice.BlockChain().GetBlockByNumber(5).Hash().Bytes()}},
 				},
 			},
-			expectedReturnCode: 0,
+			expectedReturnCode: codes.OK,
 		},
 		{
 			description: "BatchGetBlocks with block numbers",
@@ -156,7 +156,7 @@ func TestExecutionServiceServerV1_BatchGetBlocks(t *testing.T) {
 					{Identifier: &astriaPb.BlockIdentifier_BlockNumber{BlockNumber: 5}},
 				},
 			},
-			expectedReturnCode: 0,
+			expectedReturnCode: codes.OK,
 		},
 		{
 			description: "BatchGetBlocks block not found",
@@ -223,7 +223,7 @@ func TestExecutionServiceServerV1_ExecuteBlock(t *testing.T) {
 			prevBlockHash:                        ethservice.BlockChain().CurrentSafeBlock().Hash().Bytes(),
 			timestamp:                            ethservice.BlockChain().CurrentSafeBlock().Time + 2,
 			depositTxAmount:                      big.NewInt(0),
-			expectedReturnCode:                   0,
+			expectedReturnCode:                   codes.OK,
 		},
 		{
 			description:                          "ExecuteBlock with 5 txs and a deposit tx",
@@ -232,7 +232,7 @@ func TestExecutionServiceServerV1_ExecuteBlock(t *testing.T) {
 			prevBlockHash:                        ethservice.BlockChain().CurrentSafeBlock().Hash().Bytes(),
 			timestamp:                            ethservice.BlockChain().CurrentSafeBlock().Time + 2,
 			depositTxAmount:                      big.NewInt(1000000000000000000),
-			expectedReturnCode:                   0,
+			expectedReturnCode:                   codes.OK,
 		},
 		{
 			description:                          "ExecuteBlock with incorrect previous block hash",

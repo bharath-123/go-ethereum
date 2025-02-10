@@ -101,7 +101,7 @@ func (s *ExecutionServiceServerV1) GetBlock(ctx context.Context, req *astriaPb.G
 	res, err := s.getBlockFromIdentifier(req.GetIdentifier())
 	if err != nil {
 		log.Error("failed finding block", err)
-		return nil, shared.WrapError(err, "failed finding block")
+		return nil, err
 	}
 
 	log.Debug("GetBlock completed", "request", req, "response", res)
@@ -126,7 +126,7 @@ func (s *ExecutionServiceServerV1) BatchGetBlocks(ctx context.Context, req *astr
 		block, err := s.getBlockFromIdentifier(id)
 		if err != nil {
 			log.Error("failed finding block with id", id, "error", err)
-			return nil, shared.WrapError(err, fmt.Sprintf("failed finding block with id %s", id.String()))
+			return nil, err
 		}
 
 		blocks = append(blocks, block)

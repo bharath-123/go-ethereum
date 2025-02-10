@@ -61,12 +61,12 @@ func (handler *GRPCServerHandler) Start() error {
 	}
 
 	// Start the gRPC server
-	tcpLis, err := net.Listen("tcp", handler.endpoint)
+	lis, err := net.Listen("tcp", handler.endpoint)
 	if err != nil {
 		return err
 	}
 
-	go handler.execServer.Serve(tcpLis)
+	go handler.execServer.Serve(lis)
 
 	log.Info("gRPC server started", "endpoint", handler.endpoint)
 	return nil

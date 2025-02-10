@@ -162,10 +162,11 @@ func (o *AuctionServiceV1Alpha1) ExecuteOptimisticBlockStream(stream auctionGrpc
 				log.Error("error waiting for mempool clearing event", "err", err)
 				return status.Errorf(codes.Internal, shared.WrapError(err, "error waiting for mempool clearing event").Error())
 			} else {
-				// TODO - what is the right error code here?
+				log.Error("mempool clearance subscription closed")
 				return status.Error(codes.Internal, "mempool clearance subscription closed")
 			}
 		case <-stream.Context().Done():
+			log.Error("stream closed")
 			return stream.Context().Err()
 		}
 	}

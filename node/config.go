@@ -275,7 +275,7 @@ func (c *Config) HTTPEndpoint() string {
 	return net.JoinHostPort(c.HTTPHost, fmt.Sprintf("%d", c.HTTPPort))
 }
 
-// GRPCEndpoint resolves a gRPC TCP endpoint based on the configured host interface
+// GRPCENDPOINT resolves a gRPC TCP endpoint based on the configured host interface
 // and port parameters.
 func (c *Config) GRPCEndpoint() string {
 	if c.GRPCHost == "" {

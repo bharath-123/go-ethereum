@@ -642,6 +642,10 @@ func TestMissingNonce(t *testing.T) {
 	if pool.all.Count() != 1 {
 		t.Error("expected 1 total transactions, got", pool.all.Count())
 	}
+
+	if err := validatePoolInternals(pool); err != nil {
+		t.Fatalf("pool internal state corrupted: %v", err)
+	}
 }
 
 func TestNonceRecovery(t *testing.T) {
@@ -665,6 +669,10 @@ func TestNonceRecovery(t *testing.T) {
 	<-pool.requestReset(nil, nil)
 	if fn := pool.Nonce(addr); fn != n-1 {
 		t.Errorf("expected nonce to be %d, got %d", n-1, fn)
+	}
+
+	if err := validatePoolInternals(pool); err != nil {
+		t.Fatalf("pool internal state corrupted: %v", err)
 	}
 
 }

@@ -1542,7 +1542,6 @@ func (pool *LegacyPool) reset(oldHead, newHead *types.Header) {
 			}
 		}
 	}
-
 	// Initialize the internal state to the current head
 	if newHead == nil {
 		newHead = pool.chain.CurrentBlock() // Special case during testing
@@ -1556,7 +1555,6 @@ func (pool *LegacyPool) reset(oldHead, newHead *types.Header) {
 	pool.currentState = statedb
 	pool.pendingNonces = newNoncer(statedb)
 
-	// we don't care about these
 	// Inject any transactions discarded due to reorgs
 	log.Debug("Reinjecting stale transactions", "count", len(reinject))
 	core.SenderCacher.Recover(pool.signer, reinject)
@@ -1844,7 +1842,6 @@ func (pool *LegacyPool) demoteUnexecutables() {
 
 	for addr, list := range pool.pending {
 		nonce := pool.currentState.GetNonce(addr)
-
 		// Drop all transactions that are deemed too old (low nonce)
 		olds := list.Forward(nonce)
 		for _, tx := range olds {

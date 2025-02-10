@@ -76,7 +76,7 @@ func fillPool(t testing.TB, pool *LegacyPool) {
 
 // Tests that if a batch high-priced of non-executables arrive, they do not kick out
 // executable transactions
-func TestTransactionFutureAttack(t *testing.T) {
+func TestTransactionFutureAttackWithAuctioneerEnabled(t *testing.T) {
 	t.Parallel()
 
 	// Create the pool to test the limit enforcement with
@@ -114,7 +114,7 @@ func TestTransactionFutureAttack(t *testing.T) {
 
 // Tests that if a batch high-priced of non-executables arrive, they do not kick out
 // executable transactions
-func TestTransactionFuture1559(t *testing.T) {
+func TestTransactionFuture1559WithAuctioneerEnabled(t *testing.T) {
 	t.Parallel()
 	// Create the pool to test the pricing enforcement with
 	statedb, _ := state.New(types.EmptyRootHash, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
@@ -147,7 +147,7 @@ func TestTransactionFuture1559(t *testing.T) {
 
 // Tests that if a batch of balance-overdraft txs arrive, they do not kick out
 // executable transactions
-func TestTransactionZAttack(t *testing.T) {
+func TestTransactionZAttackWithAuctioneerEnabled(t *testing.T) {
 	t.Parallel()
 	// Create the pool to test the pricing enforcement with
 	statedb, _ := state.New(types.EmptyRootHash, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
@@ -216,7 +216,7 @@ func TestTransactionZAttack(t *testing.T) {
 	}
 }
 
-func BenchmarkFutureAttack(b *testing.B) {
+func BenchmarkFutureAttackWithAuctioneerEnabled(b *testing.B) {
 	// Create the pool to test the limit enforcement with
 	statedb, _ := state.New(types.EmptyRootHash, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
 	blockchain := newTestBlockChain(eip1559Config, 1000000, statedb, new(event.Feed))
@@ -224,6 +224,173 @@ func BenchmarkFutureAttack(b *testing.B) {
 	config.GlobalQueue = 100
 	config.GlobalSlots = 100
 	pool := New(config, blockchain, true)
+	pool.Init(testTxPoolConfig.PriceLimit, blockchain.CurrentBlock(), makeAddressReserver())
+	defer pool.Close()
+	fillPool(b, pool)
+
+	key, _ := crypto.GenerateKey()
+	pool.currentState.AddBalance(crypto.PubkeyToAddress(key.PublicKey), uint256.NewInt(100000000000), tracing.BalanceChangeUnspecified)
+	futureTxs := types.Transactions{}
+
+	for n := 0; n < b.N; n++ {
+		futureTxs = append(futureTxs, pricedTransaction(1000+uint64(n), 100000, big.NewInt(500), key))
+	}
+	b.ResetTimer()
+	for i := 0; i < 5; i++ {
+		pool.addRemotesSync(futureTxs)
+	}
+}
+
+// Tests that if a batch high-priced of non-executables arrive, they do not kick out
+// executable transactions
+func TestTransactionFutureAttackWithAuctioneerDisabled(t *testing.T) {
+	t.Parallel()
+
+	// Create the pool to test the limit enforcement with
+	statedb, _ := state.New(types.EmptyRootHash, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	blockchain := newTestBlockChain(eip1559Config, 1000000, statedb, new(event.Feed))
+	config := testTxPoolConfig
+	config.GlobalQueue = 100
+	config.GlobalSlots = 100
+	pool := New(config, blockchain, false)
+	pool.Init(config.PriceLimit, blockchain.CurrentBlock(), makeAddressReserver())
+	defer pool.Close()
+	fillPool(t, pool)
+	pending, _ := pool.Stats()
+	// Now, future transaction attack starts, let's add a bunch of expensive non-executables, and see if the pending-count drops
+	{
+		key, _ := crypto.GenerateKey()
+		pool.currentState.AddBalance(crypto.PubkeyToAddress(key.PublicKey), uint256.NewInt(100000000000), tracing.BalanceChangeUnspecified)
+		futureTxs := types.Transactions{}
+		for j := 0; j < int(pool.config.GlobalSlots+pool.config.GlobalQueue); j++ {
+			futureTxs = append(futureTxs, pricedTransaction(1000+uint64(j), 100000, big.NewInt(500), key))
+		}
+		for i := 0; i < 5; i++ {
+			pool.addRemotesSync(futureTxs)
+			newPending, newQueued := count(t, pool)
+			t.Logf("pending: %d queued: %d, all: %d\n", newPending, newQueued, pool.all.Slots())
+		}
+	}
+	newPending, _ := pool.Stats()
+	// Pending should not have been touched
+	if have, want := newPending, pending; have < want {
+		t.Errorf("wrong pending-count, have %d, want %d (GlobalSlots: %d)",
+			have, want, pool.config.GlobalSlots)
+	}
+}
+
+// Tests that if a batch high-priced of non-executables arrive, they do not kick out
+// executable transactions
+func TestTransactionFuture1559WithAuctioneerDisabled(t *testing.T) {
+	t.Parallel()
+	// Create the pool to test the pricing enforcement with
+	statedb, _ := state.New(types.EmptyRootHash, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	blockchain := newTestBlockChain(eip1559Config, 1000000, statedb, new(event.Feed))
+	pool := New(testTxPoolConfig, blockchain, false)
+	pool.Init(testTxPoolConfig.PriceLimit, blockchain.CurrentBlock(), makeAddressReserver())
+	defer pool.Close()
+
+	// Create a number of test accounts, fund them and make transactions
+	fillPool(t, pool)
+	pending, _ := pool.Stats()
+
+	// Now, future transaction attack starts, let's add a bunch of expensive non-executables, and see if the pending-count drops
+	{
+		key, _ := crypto.GenerateKey()
+		pool.currentState.AddBalance(crypto.PubkeyToAddress(key.PublicKey), uint256.NewInt(100000000000), tracing.BalanceChangeUnspecified)
+		futureTxs := types.Transactions{}
+		for j := 0; j < int(pool.config.GlobalSlots+pool.config.GlobalQueue); j++ {
+			futureTxs = append(futureTxs, dynamicFeeTx(1000+uint64(j), 100000, big.NewInt(200), big.NewInt(101), key))
+		}
+		pool.addRemotesSync(futureTxs)
+	}
+	newPending, _ := pool.Stats()
+	// Pending should not have been touched
+	if have, want := newPending, pending; have != want {
+		t.Errorf("Wrong pending-count, have %d, want %d (GlobalSlots: %d)",
+			have, want, pool.config.GlobalSlots)
+	}
+}
+
+// Tests that if a batch of balance-overdraft txs arrive, they do not kick out
+// executable transactions
+func TestTransactionZAttackWithAuctioneerDisabled(t *testing.T) {
+	t.Parallel()
+	// Create the pool to test the pricing enforcement with
+	statedb, _ := state.New(types.EmptyRootHash, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	blockchain := newTestBlockChain(eip1559Config, 1000000, statedb, new(event.Feed))
+	pool := New(testTxPoolConfig, blockchain, false)
+	pool.Init(testTxPoolConfig.PriceLimit, blockchain.CurrentBlock(), makeAddressReserver())
+	defer pool.Close()
+	// Create a number of test accounts, fund them and make transactions
+	fillPool(t, pool)
+
+	countInvalidPending := func() int {
+		t.Helper()
+		var ivpendingNum int
+		pendingtxs, _ := pool.Content()
+		for account, txs := range pendingtxs {
+			cur_balance := new(big.Int).Set(pool.currentState.GetBalance(account).ToBig())
+			for _, tx := range txs {
+				if cur_balance.Cmp(tx.Value()) <= 0 {
+					ivpendingNum++
+				} else {
+					cur_balance.Sub(cur_balance, tx.Value())
+				}
+			}
+		}
+		if err := validatePoolInternals(pool); err != nil {
+			t.Fatalf("pool internal state corrupted: %v", err)
+		}
+		return ivpendingNum
+	}
+	ivPending := countInvalidPending()
+	t.Logf("invalid pending: %d\n", ivPending)
+
+	// Now, DETER-Z attack starts, let's add a bunch of expensive non-executables (from N accounts) along with balance-overdraft txs (from one account), and see if the pending-count drops
+	for j := 0; j < int(pool.config.GlobalQueue); j++ {
+		futureTxs := types.Transactions{}
+		key, _ := crypto.GenerateKey()
+		pool.currentState.AddBalance(crypto.PubkeyToAddress(key.PublicKey), uint256.NewInt(100000000000), tracing.BalanceChangeUnspecified)
+		futureTxs = append(futureTxs, pricedTransaction(1000+uint64(j), 21000, big.NewInt(500), key))
+		pool.addRemotesSync(futureTxs)
+	}
+
+	overDraftTxs := types.Transactions{}
+	{
+		key, _ := crypto.GenerateKey()
+		pool.currentState.AddBalance(crypto.PubkeyToAddress(key.PublicKey), uint256.NewInt(100000000000), tracing.BalanceChangeUnspecified)
+		for j := 0; j < int(pool.config.GlobalSlots); j++ {
+			overDraftTxs = append(overDraftTxs, pricedValuedTransaction(uint64(j), 600000000000, 21000, big.NewInt(500), key))
+		}
+	}
+	pool.addRemotesSync(overDraftTxs)
+	pool.addRemotesSync(overDraftTxs)
+	pool.addRemotesSync(overDraftTxs)
+	pool.addRemotesSync(overDraftTxs)
+	pool.addRemotesSync(overDraftTxs)
+
+	newPending, newQueued := count(t, pool)
+	newIvPending := countInvalidPending()
+	t.Logf("pool.all.Slots(): %d\n", pool.all.Slots())
+	t.Logf("pending: %d queued: %d, all: %d\n", newPending, newQueued, pool.all.Slots())
+	t.Logf("invalid pending: %d\n", newIvPending)
+
+	// Pending should not have been touched
+	if newIvPending != ivPending {
+		t.Errorf("Wrong invalid pending-count, have %d, want %d (GlobalSlots: %d, queued: %d)",
+			newIvPending, ivPending, pool.config.GlobalSlots, newQueued)
+	}
+}
+
+func BenchmarkFutureAttackWithAuctioneerDisabled(b *testing.B) {
+	// Create the pool to test the limit enforcement with
+	statedb, _ := state.New(types.EmptyRootHash, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	blockchain := newTestBlockChain(eip1559Config, 1000000, statedb, new(event.Feed))
+	config := testTxPoolConfig
+	config.GlobalQueue = 100
+	config.GlobalSlots = 100
+	pool := New(config, blockchain, false)
 	pool.Init(testTxPoolConfig.PriceLimit, blockchain.CurrentBlock(), makeAddressReserver())
 	defer pool.Close()
 	fillPool(b, pool)
