@@ -88,13 +88,11 @@ func TestAuctionServiceServerV1Alpha1_ExecuteOptimisticBlock(t *testing.T) {
 
 			// create the txs to send
 			// create 5 txs
-			txs := []*types.Transaction{}
 			marshalledTxs := []*sequencerblockv1.RollupData{}
 			for i := 0; i < 5; i++ {
 				unsignedTx := types.NewTransaction(uint64(i), shared.TestToAddress, big.NewInt(1), params.TxGas, big.NewInt(params.InitialBaseFee*2), nil)
 				tx, err := types.SignTx(unsignedTx, types.LatestSigner(ethservice.BlockChain().Config()), shared.TestKey)
 				require.Nil(t, err, "Failed to sign tx")
-				txs = append(txs, tx)
 
 				marshalledTx, err := tx.MarshalBinary()
 				require.Nil(t, err, "Failed to marshal tx")
@@ -263,11 +261,8 @@ func TestAuctionServiceServerV1Alpha_StreamBids(t *testing.T) {
 		errorCh <- optimisticServiceV1Alpha1.ExecuteOptimisticBlockStream(mockBidirectionalStream)
 	}(errorCh)
 
-	select {
-	// stream either errors out of gets closed
-	case err := <-errorCh:
-		require.Nil(t, err, "StreamExecuteOptimisticBlock failed")
-	}
+	err = <-errorCh
+	require.Nil(t, err, "StreamExecuteOptimisticBlock failed")
 
 	require.Len(t, mockBidirectionalStream.accumulatedResponses, 1, "Number of responses should match the number of requests")
 	accumulatedResponse := mockBidirectionalStream.accumulatedResponses[0]
@@ -332,10 +327,8 @@ func TestAuctionServiceServerV1Alpha_StreamBids(t *testing.T) {
 	err = ethservice.TxPool().Close()
 	require.Nil(t, err, "Failed to close mempool")
 
-	select {
-	case err := <-errorCh:
-		require.ErrorContains(t, err, "tx pool subscription closed")
-	}
+	err = <-errorCh
+	require.ErrorContains(t, err, "tx pool subscription closed")
 
 	require.Len(t, mockServerSideStreaming.sentResponses, 5, "Number of responses should match the number of requests")
 
@@ -426,11 +419,8 @@ func TestAuctionServiceServerV1_StreamExecuteOptimisticBlock(t *testing.T) {
 		errorCh <- auctionServiceV1Alpha1.ExecuteOptimisticBlockStream(mockStream)
 	}(errorCh)
 
-	select {
-	// the stream will either errors out or gets closed
-	case err := <-errorCh:
-		require.Nil(t, err, "StreamExecuteOptimisticBlock failed")
-	}
+	err = <-errorCh
+	require.Nil(t, err, "StreamExecuteOptimisticBlock failed")
 
 	accumulatedResponses := mockStream.accumulatedResponses
 

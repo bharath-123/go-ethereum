@@ -11,7 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/eth"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 	"sync"
 	"sync/atomic"
 )
@@ -115,7 +115,6 @@ func NewSharedServiceContainer(eth *eth.Ethereum) (*SharedServiceContainer, erro
 	if bc.Config().AstriaAuctioneerAddresses == nil {
 		log.Warn("auctioneer addresses not set. allocations will be ignored until auctioneer address is set")
 	} else {
-
 		maxHeightCollectorMatch := uint32(0)
 		for height, address := range bc.Config().AstriaAuctioneerAddresses {
 			if height <= nextBlock && height > maxHeightCollectorMatch {
@@ -156,7 +155,6 @@ func NewSharedServiceContainer(eth *eth.Ethereum) (*SharedServiceContainer, erro
 // `RollupData` we log the error and continue processing the rest of the transactions. We do not want to break control flow
 // for an invalid transaction as we do not want to interrupt block production.
 func (s *SharedServiceContainer) UnbundleRollupDataTransactions(txs []*sequencerblockv1.RollupData, height uint64, prevBlockHash []byte) types.Transactions {
-
 	processedTxs := types.Transactions{}
 	allocationTxs := types.Transactions{}
 
@@ -164,7 +162,6 @@ func (s *SharedServiceContainer) UnbundleRollupDataTransactions(txs []*sequencer
 	allocation := &auctionv1alpha1.Allocation{}
 
 	for _, tx := range txs {
-
 		switch {
 		case tx.GetDeposit() != nil:
 			depositTx, err := validateAndUnmarshalDepositTx(tx.GetDeposit(), height, s.BridgeAddresses(), s.BridgeAllowedAssets())

@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"github.com/ethereum/go-ethereum/eth"
 	"github.com/ethereum/go-ethereum/grpc/shared"
-	"github.com/ethereum/go-ethereum/params"
 	"sync"
 	"time"
 
@@ -402,16 +401,8 @@ func (s *ExecutionServiceServerV1) setGenesisInfoCalled(value bool) {
 	s.sharedServiceContainer.SetGenesisInfoCalled(value)
 }
 
-func (s *ExecutionServiceServerV1) genesisInfoCalled() bool {
-	return s.sharedServiceContainer.GenesisInfoCalled()
-}
-
 func (s *ExecutionServiceServerV1) setGetCommitmentStateCalled(value bool) {
 	s.sharedServiceContainer.SetGetCommitmentStateCalled(value)
-}
-
-func (s *ExecutionServiceServerV1) commitmentStateCalled() bool {
-	return s.sharedServiceContainer.CommitmentStateCalled()
 }
 
 func (s *ExecutionServiceServerV1) commitmentUpdateLock() *sync.Mutex {
@@ -430,28 +421,12 @@ func (s *ExecutionServiceServerV1) setNextFeeRecipient(feeRecipient common.Addre
 	s.sharedServiceContainer.SetNextFeeRecipient(feeRecipient)
 }
 
-func (s *ExecutionServiceServerV1) bridgeAddresses() map[string]*params.AstriaBridgeAddressConfig {
-	return s.sharedServiceContainer.BridgeAddresses()
-}
-
-func (s *ExecutionServiceServerV1) bridgeAllowedAssets() map[string]struct{} {
-	return s.sharedServiceContainer.BridgeAllowedAssets()
-}
-
 func (s *ExecutionServiceServerV1) syncMethodsCalled() bool {
 	return s.sharedServiceContainer.SyncMethodsCalled()
 }
 
-func (s *ExecutionServiceServerV1) auctioneerAddress() string {
-	return s.sharedServiceContainer.AuctioneerAddress()
-}
-
 func (s *ExecutionServiceServerV1) setAuctioneerAddress(auctioneerAddress string) {
 	s.sharedServiceContainer.SetAuctioneerAddress(auctioneerAddress)
-}
-
-func (s *ExecutionServiceServerV1) auctioneerStartHeight() uint64 {
-	return s.sharedServiceContainer.AuctioneerStartHeight()
 }
 
 func (s *ExecutionServiceServerV1) unbundleRollupDataTransactions(txs []*sequencerblockv1.RollupData, height uint64, prevBlockHash []byte) types.Transactions {

@@ -1562,7 +1562,7 @@ func (pool *LegacyPool) reset(oldHead, newHead *types.Header) {
 }
 
 // resetHeadOnly retrieves the current state of the blockchain and sets the legacypool to validate
-// new queued transactions against this retrived state.
+// new queued transactions against this retrieved state.
 func (pool *LegacyPool) resetHeadOnly(oldHead, newHead *types.Header) {
 	// Initialize the internal state to the current head
 	if newHead == nil {

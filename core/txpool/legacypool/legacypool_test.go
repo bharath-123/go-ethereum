@@ -674,7 +674,6 @@ func TestNonceRecovery(t *testing.T) {
 	if err := validatePoolInternals(pool); err != nil {
 		t.Fatalf("pool internal state corrupted: %v", err)
 	}
-
 }
 
 // Tests that if an account runs out of funds, any pending and queued transactions

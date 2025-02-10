@@ -17,13 +17,11 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/miner"
-	"github.com/ethereum/go-ethereum/params"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"io"
 	"math/big"
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -261,56 +259,12 @@ func (o *AuctionServiceV1Alpha1) bc() *core.BlockChain {
 	return o.sharedServiceContainer.Bc()
 }
 
-func (o *AuctionServiceV1Alpha1) setGenesisInfoCalled(value bool) {
-	o.sharedServiceContainer.SetGenesisInfoCalled(value)
-}
-
-func (o *AuctionServiceV1Alpha1) genesisInfoCalled() bool {
-	return o.sharedServiceContainer.GenesisInfoCalled()
-}
-
-func (o *AuctionServiceV1Alpha1) setGetCommitmentStateCalled(value bool) {
-	o.sharedServiceContainer.SetGetCommitmentStateCalled(value)
-}
-
-func (o *AuctionServiceV1Alpha1) commitmentStateCalled() bool {
-	return o.sharedServiceContainer.CommitmentStateCalled()
-}
-
-func (o *AuctionServiceV1Alpha1) commitmentUpdateLock() *sync.Mutex {
-	return o.sharedServiceContainer.CommitmentUpdateLock()
-}
-
-func (o *AuctionServiceV1Alpha1) blockExecutionLock() *sync.Mutex {
-	return o.sharedServiceContainer.BlockExecutionLock()
-}
-
 func (o *AuctionServiceV1Alpha1) nextFeeRecipient() common.Address {
 	return o.sharedServiceContainer.NextFeeRecipient()
 }
 
-func (o *AuctionServiceV1Alpha1) setNextFeeRecipient(feeRecipient common.Address) {
-	o.sharedServiceContainer.SetNextFeeRecipient(feeRecipient)
-}
-
-func (o *AuctionServiceV1Alpha1) bridgeAddresses() map[string]*params.AstriaBridgeAddressConfig {
-	return o.sharedServiceContainer.BridgeAddresses()
-}
-
-func (o *AuctionServiceV1Alpha1) bridgeAllowedAssets() map[string]struct{} {
-	return o.sharedServiceContainer.BridgeAllowedAssets()
-}
-
 func (o *AuctionServiceV1Alpha1) syncMethodsCalled() bool {
 	return o.sharedServiceContainer.SyncMethodsCalled()
-}
-
-func (o *AuctionServiceV1Alpha1) auctioneerAddress() string {
-	return o.sharedServiceContainer.AuctioneerAddress()
-}
-
-func (o *AuctionServiceV1Alpha1) auctioneerStartHeight() uint64 {
-	return o.sharedServiceContainer.AuctioneerStartHeight()
 }
 
 func (o *AuctionServiceV1Alpha1) unbundleRollupDataTransactions(txs []*sequencerblockv1.RollupData, height uint64, prevBlockHash []byte) types.Transactions {

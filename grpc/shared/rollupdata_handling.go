@@ -15,8 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/golang/protobuf/proto"
-	proto2 "google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"math/big"
 	"time"
@@ -139,7 +138,7 @@ func unmarshalAllocationTxs(allocation *auctionv1alpha1.Allocation, prevBlockHas
 
 	unprocessedBid := allocation.GetBid()
 
-	err := anypb.UnmarshalTo(unprocessedBid, bid, proto2.UnmarshalOptions{
+	err := anypb.UnmarshalTo(unprocessedBid, bid, proto.UnmarshalOptions{
 		Merge:        false,
 		AllowPartial: false,
 	})
@@ -190,5 +189,4 @@ func unmarshalAllocationTxs(allocation *auctionv1alpha1.Allocation, prevBlockHas
 	successfulUnbundledAllocations.Inc(1)
 
 	return processedTxs, nil
-
 }

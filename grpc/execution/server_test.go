@@ -119,7 +119,6 @@ func TestExecutionServiceV1_GetBlock(t *testing.T) {
 				require.Equal(t, block.Hash().Bytes(), blockInfo.Hash, "BlockHash is not correct")
 			}
 		})
-
 	}
 }
 
@@ -267,13 +266,11 @@ func TestExecutionServiceServerV1_ExecuteBlock(t *testing.T) {
 
 			// create the txs to send
 			// create 5 txs
-			txs := []*types.Transaction{}
 			marshalledTxs := []*sequencerblockv1.RollupData{}
 			for i := 0; i < 5; i++ {
 				unsignedTx := types.NewTransaction(uint64(i), shared.TestToAddress, big.NewInt(1), params.TxGas, big.NewInt(params.InitialBaseFee*2), nil)
 				tx, err := types.SignTx(unsignedTx, types.LatestSigner(ethservice.BlockChain().Config()), shared.TestKey)
 				require.Nil(t, err, "Failed to sign tx")
-				txs = append(txs, tx)
 
 				marshalledTx, err := tx.MarshalBinary()
 				require.Nil(t, err, "Failed to marshal tx")
@@ -336,7 +333,6 @@ func TestExecutionServiceServerV1_ExecuteBlock(t *testing.T) {
 
 				require.Exactly(t, commitmentStateBeforeExecuteBlock, commitmentStateAfterExecuteBlock, "Commitment state should not be updated")
 			}
-
 		})
 	}
 }
@@ -360,13 +356,11 @@ func TestExecutionServiceServerV1_ExecuteBlockAndUpdateCommitment(t *testing.T) 
 	require.NotNil(t, previousBlock, "Previous block not found")
 
 	// create 5 txs
-	txs := []*types.Transaction{}
 	marshalledTxs := []*sequencerblockv1.RollupData{}
 	for i := 0; i < 5; i++ {
 		unsignedTx := types.NewTransaction(uint64(i), shared.TestToAddress, big.NewInt(1), params.TxGas, big.NewInt(params.InitialBaseFee*2), nil)
 		tx, err := types.SignTx(unsignedTx, types.LatestSigner(ethservice.BlockChain().Config()), shared.TestKey)
 		require.Nil(t, err, "Failed to sign tx")
-		txs = append(txs, tx)
 
 		marshalledTx, err := tx.MarshalBinary()
 		require.Nil(t, err, "Failed to marshal tx")
@@ -506,13 +500,11 @@ func TestExecutionServiceServerV1_ExecuteBlockAndUpdateCommitmentWithInvalidTran
 	latestNonce := stateDb.GetNonce(shared.TestAddr)
 
 	// create 5 txs
-	txs := []*types.Transaction{}
 	marshalledTxs := []*sequencerblockv1.RollupData{}
 	for i := 0; i < 5; i++ {
 		unsignedTx := types.NewTransaction(latestNonce+uint64(i), shared.TestToAddress, big.NewInt(1), params.TxGas, big.NewInt(params.InitialBaseFee*2), nil)
 		tx, err := types.SignTx(unsignedTx, types.LatestSigner(ethservice.BlockChain().Config()), shared.TestKey)
 		require.Nil(t, err, "Failed to sign tx")
-		txs = append(txs, tx)
 
 		marshalledTx, err := tx.MarshalBinary()
 		require.Nil(t, err, "Failed to marshal tx")
@@ -525,7 +517,6 @@ func TestExecutionServiceServerV1_ExecuteBlockAndUpdateCommitmentWithInvalidTran
 	unsignedTx := types.NewTransaction(latestNonce+uint64(5), shared.TestToAddress, big.NewInt(1), ethservice.BlockChain().GasLimit(), big.NewInt(params.InitialBaseFee*2), nil)
 	tx, err := types.SignTx(unsignedTx, types.LatestSigner(ethservice.BlockChain().Config()), shared.TestKey)
 	require.Nil(t, err, "Failed to sign tx")
-	txs = append(txs, tx)
 
 	marshalledTx, err := tx.MarshalBinary()
 	require.Nil(t, err, "Failed to marshal tx")
