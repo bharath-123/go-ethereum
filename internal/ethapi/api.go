@@ -59,7 +59,7 @@ const estimateGasErrorRatio = 0.015
 
 var errBlobTxNotSupported = errors.New("blob transactions not supported")
 var errDepositTxNotSupported = errors.New("deposit transactions not supported")
-var errOptimisticBlockBehind = errors.New("optimistic block production is behind. tx sending will be enabled once optimistic block production resumes")
+var errOptimisticBlockBehind = errors.New("optimistic block not in sync")
 
 // EthereumAPI provides an API to access Ethereum related information.
 type EthereumAPI struct {
