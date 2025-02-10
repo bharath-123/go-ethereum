@@ -154,6 +154,10 @@ func (o *AuctionServiceV1Alpha1) ExecuteOptimisticBlockStream(stream auctionGrpc
 				Block:                  optimisticBlock,
 				BaseSequencerBlockHash: baseBlock.SequencerBlockHash,
 			})
+			if err != nil {
+				log.Error("error sending optimistic block response", "err", err)
+				return status.Error(codes.Internal, shared.WrapError(err, "error sending optimistic block response").Error())
+			}
 		case <-time.After(500 * time.Millisecond):
 			log.Error("timed out waiting for mempool to clear after optimistic block execution")
 			return status.Error(codes.DeadlineExceeded, "timed out waiting for mempool to clear after optimistic block execution")
