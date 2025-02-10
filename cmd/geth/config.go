@@ -21,6 +21,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ethereum/go-ethereum/eth/catalyst"
+	"github.com/ethereum/go-ethereum/grpc/optimistic"
+	"github.com/ethereum/go-ethereum/grpc/shared"
 	"os"
 	"reflect"
 	"runtime"
@@ -206,11 +208,16 @@ func makeFullNode(ctx *cli.Context) *node.Node {
 
 	// Configure gRPC if requested.
 	if ctx.IsSet(utils.GRPCEnabledFlag.Name) {
-		serviceV1, err := execution.NewExecutionServiceServerV1(eth)
+		sharedService, err := shared.NewSharedServiceContainer(eth)
 		if err != nil {
-			utils.Fatalf("failed to create execution service: %v", err)
+			utils.Fatalf("failed to create shared service container: %v", err)
 		}
-		utils.RegisterGRPCExecutionService(stack, serviceV1, &cfg.Node)
+
+		serviceV1a2 := execution.NewExecutionServiceServerV1(sharedService)
+
+		auctionServiceV1Alpha1 := optimistic.NewAuctionServiceV1Alpha1(sharedService)
+
+		utils.RegisterGRPCServices(stack, serviceV1a2, auctionServiceV1Alpha1, auctionServiceV1Alpha1, &cfg.Node)
 	}
 
 	// Add the Ethereum Stats daemon if requested.
