@@ -1779,7 +1779,7 @@ func SubmitTransaction(ctx context.Context, b Backend, tx *types.Transaction) (c
 		// it is enough to check if the soft block height is more than the optimistic block height as a condition to detect issues with
 		// optimistic block execution. We take the below conditions to understand why:
 		// can we have optimistic_block.height > soft block.height? Optimistic block can only be greater than soft block by 1 block at any given point.
-		// this is because the optimistic block is always built on top of the current parent block. This case can never happen
+		// this is because the optimistic block is always built on top of the current soft block. This case can never happen
 		// can we have optimistic_block.height == soft_block.height? This happens when conductor executes the soft block after auctioneer successfully
 		// executes the optimistic block. It is a scenario we expect to happen.
 		// can we have optimistic_block.height < soft_block.height. This should never happen. This can happen when optimistic block execution
