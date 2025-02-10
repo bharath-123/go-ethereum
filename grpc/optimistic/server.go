@@ -78,6 +78,7 @@ func (o *AuctionServiceV1Alpha1) GetBidStream(_ *auctionPb.GetBidStreamRequest, 
 				marshalledTxs := [][]byte{}
 				marshalledTx, err := pendingTx.MarshalBinary()
 				if err != nil {
+					log.Error("error marshalling tx", "err", err)
 					return status.Errorf(codes.Internal, shared.WrapError(err, "error marshalling tx").Error())
 				}
 				marshalledTxs = append(marshalledTxs, marshalledTx)
@@ -101,11 +102,12 @@ func (o *AuctionServiceV1Alpha1) GetBidStream(_ *auctionPb.GetBidStreamRequest, 
 				log.Error("error waiting for pending transactions", "err", err)
 				return status.Error(codes.Internal, shared.WrapError(err, "error waiting for pending transactions").Error())
 			} else {
-				// TODO - what is the right error code here?
+				log.Debug("tx pool subscription closed")
 				return status.Error(codes.Internal, "tx pool subscription closed")
 			}
 
 		case <-stream.Context().Done():
+			log.Error("stream closed", "err", stream.Context().Err())
 			return stream.Context().Err()
 		}
 	}
@@ -142,12 +144,14 @@ func (o *AuctionServiceV1Alpha1) ExecuteOptimisticBlockStream(stream auctionGrpc
 		// listen to the mempool clearing event and send the response back to the auctioneer when the mempool is cleared
 		select {
 		case event := <-mempoolClearingEventCh:
+			log.Debug("mempool cleared after optimistic block execution", "block_hash", optimisticBlockHash.String(), "new_head", event.NewHead.Hash().String())
 			if event.NewHead.Hash() != optimisticBlockHash {
 				log.Error("mempool not cleared after optimistic block execution", "expected_block_hash", optimisticBlockHash.String(), "actual_block_hash", event.NewHead.Hash().String())
 				return status.Error(codes.Internal, "failed to clear mempool after optimistic block execution")
 			}
 			o.currentAuctionBlock.Store(&baseBlock.SequencerBlockHash)
 			executeOptimisticBlockSuccessCount.Inc(1)
+			log.Debug("sending optimistic block response", "block_hash", optimisticBlockHash.String(), "base_block_hash", common.BytesToHash(baseBlock.SequencerBlockHash).String())
 			err = stream.Send(&auctionPb.ExecuteOptimisticBlockStreamResponse{
 				Block:                  optimisticBlock,
 				BaseSequencerBlockHash: baseBlock.SequencerBlockHash,
@@ -168,7 +172,7 @@ func (o *AuctionServiceV1Alpha1) ExecuteOptimisticBlockStream(stream auctionGrpc
 				return status.Error(codes.Internal, "mempool clearance subscription closed")
 			}
 		case <-stream.Context().Done():
-			log.Error("stream closed")
+			log.Error("stream closed", "err", stream.Context().Err())
 			return stream.Context().Err()
 		}
 	}
