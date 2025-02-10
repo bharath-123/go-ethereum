@@ -190,50 +190,6 @@ func (s *SharedServiceContainer) UnbundleRollupDataTransactions(txs []*sequencer
 			}
 			processedTxs = append(processedTxs, ethtx)
 		}
-
-		//if deposit := tx.GetDeposit(); deposit != nil {
-		//	depositTx, err := validateAndUnmarshalDepositTx(deposit, height, s.BridgeAddresses(), s.BridgeAllowedAssets())
-		//	if err != nil {
-		//		log.Error("failed to validate and unmarshal deposit tx", "error", err)
-		//		continue
-		//	}
-		//
-		//	processedTxs = append(processedTxs, depositTx)
-		//} else {
-		//	sequenceData := tx.GetSequencedData()
-		//
-		//	if !foundAllocation && height >= s.AuctioneerStartHeight() {
-		//		// check if sequence data is of type Allocation.
-		//		// we should expect only one valid allocation per block. duplicate allocations should be ignored.
-		//		allocation := &auctionv1alpha1.Allocation{}
-		//		err := proto.Unmarshal(sequenceData, allocation)
-		//		if err == nil {
-		//			unmarshalledAllocationTxs, err := unmarshalAllocationTxs(allocation, prevBlockHash, s.AuctioneerAddress(), s.Bc().Config().AstriaSequencerAddressPrefix)
-		//			if err != nil {
-		//				log.Error("failed to unmarshall allocation transactions", "error", err)
-		//				continue
-		//			}
-		//
-		//			// we found the valid allocation, we should ignore any other allocations in this block
-		//			allocationTxs = unmarshalledAllocationTxs
-		//			foundAllocation = true
-		//		} else {
-		//			ethtx, err := validateAndUnmarshalSequenceAction(tx)
-		//			if err != nil {
-		//				log.Error("failed to unmarshall sequence action", "error", err)
-		//				continue
-		//			}
-		//			processedTxs = append(processedTxs, ethtx)
-		//		}
-		//	} else {
-		//		ethtx, err := validateAndUnmarshalSequenceAction(tx)
-		//		if err != nil {
-		//			log.Error("failed to unmarshall sequence action", "error", err)
-		//			continue
-		//		}
-		//		processedTxs = append(processedTxs, ethtx)
-		//	}
-		//}
 	}
 
 	// prepend allocation txs to processedTxs
