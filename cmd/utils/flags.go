@@ -37,6 +37,7 @@ import (
 
 	auctionGrpc "buf.build/gen/go/astria/execution-apis/grpc/go/astria/auction/v1alpha1/auctionv1alpha1grpc"
 	astriaGrpc "buf.build/gen/go/astria/execution-apis/grpc/go/astria/execution/v1/executionv1grpc"
+	optimisticExecutionGrpc "buf.build/gen/go/astria/execution-apis/grpc/go/astria/optimistic_execution/v1alpha1/optimistic_executionv1alpha1grpc"
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	bparams "github.com/ethereum/go-ethereum/beacon/params"
@@ -2001,7 +2002,7 @@ func RegisterGraphQLService(stack *node.Node, backend ethapi.Backend, filterSyst
 
 // RegisterGRPCServices adds the gRPC API to the node.
 // It was done this way so that our grpc execution server can access the ethapi.Backend
-func RegisterGRPCServices(stack *node.Node, execServ astriaGrpc.ExecutionServiceServer, optimisticExecutionServ auctionGrpc.OptimisticExecutionServiceServer, auctionServiceServer auctionGrpc.AuctionServiceServer, cfg *node.Config) {
+func RegisterGRPCServices(stack *node.Node, execServ astriaGrpc.ExecutionServiceServer, optimisticExecutionServ optimisticExecutionGrpc.OptimisticExecutionServiceServer, auctionServiceServer auctionGrpc.AuctionServiceServer, cfg *node.Config) {
 	if err := node.NewGRPCServerHandler(stack, execServ, optimisticExecutionServ, auctionServiceServer, cfg); err != nil {
 		Fatalf("Failed to register the gRPC service: %v", err)
 	}

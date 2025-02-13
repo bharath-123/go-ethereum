@@ -1,11 +1,11 @@
 package optimistic
 
 import (
-	optimsticPb "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/auction/v1alpha1"
+	optimisticExecutionPb "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/optimistic_execution/v1alpha1"
 	"fmt"
 )
 
-func validateStaticExecuteOptimisticBlockRequest(req *optimsticPb.BaseBlock) error {
+func validateStaticExecuteOptimisticBlockRequest(req *optimisticExecutionPb.BaseBlock) error {
 	if req.Timestamp == nil {
 		return fmt.Errorf("Timestamp cannot be nil")
 	}

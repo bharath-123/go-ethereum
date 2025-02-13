@@ -1,8 +1,9 @@
 package optimistic
 
 import (
-	optimsticPb "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/auction/v1alpha1"
+	auctionPb "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/auction/v1alpha1"
 	astriaPb "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/execution/v1"
+	optimisticExecutionPb "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/optimistic_execution/v1alpha1"
 	primitivev1 "buf.build/gen/go/astria/primitives/protocolbuffers/go/astria/primitive/v1"
 	sequencerblockv1 "buf.build/gen/go/astria/sequencerblock-apis/protocolbuffers/go/astria/sequencerblock/v1"
 	"bytes"
@@ -134,7 +135,7 @@ func TestAuctionServiceServerV1Alpha1_ExecuteOptimisticBlock(t *testing.T) {
 			optimsticHeadSub := ethservice.BlockChain().SubscribeChainOptimisticHeadEvent(optimisticHeadCh)
 			defer optimsticHeadSub.Unsubscribe()
 
-			baseBlockReq := &optimsticPb.BaseBlock{
+			baseBlockReq := &optimisticExecutionPb.BaseBlock{
 				Timestamp: &timestamppb.Timestamp{
 					Seconds: int64(tt.timestamp),
 				},
@@ -212,7 +213,7 @@ func TestAuctionServiceServerV1Alpha_StreamBids(t *testing.T) {
 	require.NotNil(t, previousBlock, "Previous block not found")
 
 	// create the optimistic block via the StreamExecuteOptimisticBlock rpc
-	requestStreams := []*optimsticPb.ExecuteOptimisticBlockStreamRequest{}
+	requestStreams := []*optimisticExecutionPb.ExecuteOptimisticBlockStreamRequest{}
 	sequencerBlockHash := []byte("sequencer_block_hash")
 
 	// create 1 stream item with 5 txs
@@ -240,7 +241,7 @@ func TestAuctionServiceServerV1Alpha_StreamBids(t *testing.T) {
 	require.Equal(t, pending, 5, "Mempool should have 5 pending txs")
 	require.Equal(t, queued, 0, "Mempool should have 0 queued txs")
 
-	req := optimsticPb.ExecuteOptimisticBlockStreamRequest{BaseBlock: &optimsticPb.BaseBlock{
+	req := optimisticExecutionPb.ExecuteOptimisticBlockStreamRequest{BaseBlock: &optimisticExecutionPb.BaseBlock{
 		SequencerBlockHash: sequencerBlockHash,
 		Transactions:       marshalledTxs,
 		Timestamp: &timestamppb.Timestamp{
@@ -250,9 +251,9 @@ func TestAuctionServiceServerV1Alpha_StreamBids(t *testing.T) {
 
 	requestStreams = append(requestStreams, &req)
 
-	mockBidirectionalStream := &MockBidirectionalStreaming[optimsticPb.ExecuteOptimisticBlockStreamRequest, optimsticPb.ExecuteOptimisticBlockStreamResponse]{
+	mockBidirectionalStream := &MockBidirectionalStreaming[optimisticExecutionPb.ExecuteOptimisticBlockStreamRequest, optimisticExecutionPb.ExecuteOptimisticBlockStreamResponse]{
 		requestStream:        requestStreams,
-		accumulatedResponses: []*optimsticPb.ExecuteOptimisticBlockStreamResponse{},
+		accumulatedResponses: []*optimisticExecutionPb.ExecuteOptimisticBlockStreamResponse{},
 		requestCounter:       0,
 	}
 
@@ -281,13 +282,13 @@ func TestAuctionServiceServerV1Alpha_StreamBids(t *testing.T) {
 	require.Equal(t, pending, 0, "Mempool should have 0 pending txs")
 	require.Equal(t, queued, 0, "Mempool should have 0 queued txs")
 
-	mockServerSideStreaming := MockServerSideStreaming[optimsticPb.GetBidStreamResponse]{
-		sentResponses: []*optimsticPb.GetBidStreamResponse{},
+	mockServerSideStreaming := MockServerSideStreaming[auctionPb.GetBidStreamResponse]{
+		sentResponses: []*auctionPb.GetBidStreamResponse{},
 	}
 
 	errorCh = make(chan error)
 	go func() {
-		errorCh <- optimisticServiceV1Alpha1.GetBidStream(&optimsticPb.GetBidStreamRequest{}, &mockServerSideStreaming)
+		errorCh <- optimisticServiceV1Alpha1.GetBidStream(&auctionPb.GetBidStreamRequest{}, &mockServerSideStreaming)
 	}()
 
 	stateDb, err := ethservice.BlockChain().StateAt(currentOptimisticBlock.Root)
@@ -370,7 +371,7 @@ func TestAuctionServiceServerV1_StreamExecuteOptimisticBlock(t *testing.T) {
 	previousBlock := ethservice.BlockChain().CurrentSafeBlock()
 	require.NotNil(t, previousBlock, "Previous block not found")
 
-	requestStreams := []*optimsticPb.ExecuteOptimisticBlockStreamRequest{}
+	requestStreams := []*optimisticExecutionPb.ExecuteOptimisticBlockStreamRequest{}
 	sequencerBlockHash := []byte("sequencer_block_hash")
 
 	// create 1 stream item with 5 txs
@@ -398,7 +399,7 @@ func TestAuctionServiceServerV1_StreamExecuteOptimisticBlock(t *testing.T) {
 	require.Equal(t, pending, 5, "Mempool should have 5 pending txs")
 	require.Equal(t, queued, 0, "Mempool should have 0 queued txs")
 
-	req := optimsticPb.ExecuteOptimisticBlockStreamRequest{BaseBlock: &optimsticPb.BaseBlock{
+	req := optimisticExecutionPb.ExecuteOptimisticBlockStreamRequest{BaseBlock: &optimisticExecutionPb.BaseBlock{
 		SequencerBlockHash: sequencerBlockHash,
 		Transactions:       marshalledTxs,
 		Timestamp: &timestamppb.Timestamp{
@@ -408,9 +409,9 @@ func TestAuctionServiceServerV1_StreamExecuteOptimisticBlock(t *testing.T) {
 
 	requestStreams = append(requestStreams, &req)
 
-	mockStream := &MockBidirectionalStreaming[optimsticPb.ExecuteOptimisticBlockStreamRequest, optimsticPb.ExecuteOptimisticBlockStreamResponse]{
+	mockStream := &MockBidirectionalStreaming[optimisticExecutionPb.ExecuteOptimisticBlockStreamRequest, optimisticExecutionPb.ExecuteOptimisticBlockStreamResponse]{
 		requestStream:        requestStreams,
-		accumulatedResponses: []*optimsticPb.ExecuteOptimisticBlockStreamResponse{},
+		accumulatedResponses: []*optimisticExecutionPb.ExecuteOptimisticBlockStreamResponse{},
 		requestCounter:       0,
 	}
 
