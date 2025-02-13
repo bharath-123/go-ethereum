@@ -1,11 +1,12 @@
 package node
 
 import (
-	auctionGrpc "buf.build/gen/go/astria/execution-apis/grpc/go/astria/auction/v1alpha1/auctionv1alpha1grpc"
 	"net"
 	"sync"
 
+	auctionGrpc "buf.build/gen/go/astria/execution-apis/grpc/go/astria/auction/v1alpha1/auctionv1alpha1grpc"
 	astriaGrpc "buf.build/gen/go/astria/execution-apis/grpc/go/astria/execution/v1/executionv1grpc"
+	optimisticExecutionGrpc "buf.build/gen/go/astria/execution-apis/grpc/go/astria/optimistic_execution/v1alpha1/optimistic_executionv1alpha1grpc"
 	"github.com/ethereum/go-ethereum/log"
 	"google.golang.org/grpc"
 )
@@ -18,7 +19,7 @@ type GRPCServerHandler struct {
 	endpoint                   string
 	execServer                 *grpc.Server
 	executionServiceServerV1a2 *astriaGrpc.ExecutionServiceServer
-	optimisticExecServ         *auctionGrpc.OptimisticExecutionServiceServer
+	optimisticExecServ         *optimisticExecutionGrpc.OptimisticExecutionServiceServer
 	auctionServiceServ         *auctionGrpc.AuctionServiceServer
 
 	enableAuctioneer bool
@@ -27,7 +28,7 @@ type GRPCServerHandler struct {
 // NewServer creates a new gRPC server.
 // It registers the execution service server.
 // It registers the gRPC server with the node so it can be stopped on shutdown.
-func NewGRPCServerHandler(node *Node, execServ astriaGrpc.ExecutionServiceServer, optimisticExecServ auctionGrpc.OptimisticExecutionServiceServer, auctionServiceServ auctionGrpc.AuctionServiceServer, cfg *Config) error {
+func NewGRPCServerHandler(node *Node, execServ astriaGrpc.ExecutionServiceServer, optimisticExecServ optimisticExecutionGrpc.OptimisticExecutionServiceServer, auctionServiceServ auctionGrpc.AuctionServiceServer, cfg *Config) error {
 	execServer := grpc.NewServer()
 
 	log.Info("gRPC server enabled", "endpoint", cfg.GRPCEndpoint())
@@ -43,7 +44,7 @@ func NewGRPCServerHandler(node *Node, execServ astriaGrpc.ExecutionServiceServer
 
 	astriaGrpc.RegisterExecutionServiceServer(execServer, execServ)
 	if cfg.EnableAuctioneer {
-		auctionGrpc.RegisterOptimisticExecutionServiceServer(execServer, optimisticExecServ)
+		optimisticExecutionGrpc.RegisterOptimisticExecutionServiceServer(execServer, optimisticExecServ)
 		auctionGrpc.RegisterAuctionServiceServer(execServer, auctionServiceServ)
 	}
 

@@ -2,8 +2,10 @@ package optimistic
 
 import (
 	auctionGrpc "buf.build/gen/go/astria/execution-apis/grpc/go/astria/auction/v1alpha1/auctionv1alpha1grpc"
+	optimisticExecutionGrpc "buf.build/gen/go/astria/execution-apis/grpc/go/astria/optimistic_execution/v1alpha1/optimistic_executionv1alpha1grpc"
 	auctionPb "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/auction/v1alpha1"
 	astriaPb "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/execution/v1"
+	optimisticExecutionPb "buf.build/gen/go/astria/execution-apis/protocolbuffers/go/astria/optimistic_execution/v1alpha1"
 	sequencerblockv1 "buf.build/gen/go/astria/sequencerblock-apis/protocolbuffers/go/astria/sequencerblock/v1"
 	"context"
 	"errors"
@@ -27,7 +29,7 @@ import (
 )
 
 type AuctionServiceV1Alpha1 struct {
-	auctionGrpc.UnimplementedOptimisticExecutionServiceServer
+	optimisticExecutionGrpc.UnimplementedOptimisticExecutionServiceServer
 	auctionGrpc.UnimplementedAuctionServiceServer
 
 	sharedServiceContainer *shared.SharedServiceContainer
@@ -113,7 +115,7 @@ func (o *AuctionServiceV1Alpha1) GetBidStream(_ *auctionPb.GetBidStreamRequest, 
 	}
 }
 
-func (o *AuctionServiceV1Alpha1) ExecuteOptimisticBlockStream(stream auctionGrpc.OptimisticExecutionService_ExecuteOptimisticBlockStreamServer) error {
+func (o *AuctionServiceV1Alpha1) ExecuteOptimisticBlockStream(stream optimisticExecutionGrpc.OptimisticExecutionService_ExecuteOptimisticBlockStreamServer) error {
 	log.Debug("ExecuteOptimisticBlockStream called")
 
 	mempoolClearingEventCh := make(chan core.NewMempoolCleared)
@@ -152,7 +154,7 @@ func (o *AuctionServiceV1Alpha1) ExecuteOptimisticBlockStream(stream auctionGrpc
 			o.currentAuctionBlock.Store(&baseBlock.SequencerBlockHash)
 			executeOptimisticBlockSuccessCount.Inc(1)
 			log.Debug("sending optimistic block response", "block_hash", optimisticBlockHash.String(), "base_block_hash", common.BytesToHash(baseBlock.SequencerBlockHash).String())
-			err = stream.Send(&auctionPb.ExecuteOptimisticBlockStreamResponse{
+			err = stream.Send(&optimisticExecutionPb.ExecuteOptimisticBlockStreamResponse{
 				Block:                  optimisticBlock,
 				BaseSequencerBlockHash: baseBlock.SequencerBlockHash,
 			})
@@ -178,7 +180,7 @@ func (o *AuctionServiceV1Alpha1) ExecuteOptimisticBlockStream(stream auctionGrpc
 	}
 }
 
-func (o *AuctionServiceV1Alpha1) ExecuteOptimisticBlock(ctx context.Context, req *auctionPb.BaseBlock) (*astriaPb.Block, error) {
+func (o *AuctionServiceV1Alpha1) ExecuteOptimisticBlock(ctx context.Context, req *optimisticExecutionPb.BaseBlock) (*astriaPb.Block, error) {
 	// we need to execute the optimistic block
 	log.Debug("ExecuteOptimisticBlock called", "timestamp", req.Timestamp, "sequencer_block_hash", common.BytesToHash(req.SequencerBlockHash).String())
 
