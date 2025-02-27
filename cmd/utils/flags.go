@@ -2013,10 +2013,12 @@ func RegisterFilterAPI(stack *node.Node, backend ethapi.Backend, ethcfg *ethconf
 	filterSystem := filters.NewFilterSystem(backend, filters.Config{
 		LogCacheSize: ethcfg.FilterLogCacheSize,
 	})
-	stack.RegisterAPIs([]rpc.API{{
-		Namespace: "eth",
-		Service:   filters.NewFilterAPI(filterSystem),
-	}})
+	if !stack.AuctioneerEnabled() {
+		stack.RegisterAPIs([]rpc.API{{
+			Namespace: "eth",
+			Service:   filters.NewFilterAPI(filterSystem),
+		}})
+	}
 	return filterSystem
 }
 
