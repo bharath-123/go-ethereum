@@ -41,6 +41,7 @@ var (
 	executeOptimisticBlockSuccessCount = metrics.GetOrRegisterCounter("astria/optimistic/execute_optimistic_block_success", nil)
 	optimisticBlockHeight              = metrics.GetOrRegisterGauge("astria/execution/optimistic_block_height", nil)
 	txsStreamedCount                   = metrics.GetOrRegisterCounter("astria/optimistic/txs_streamed", nil)
+	txsTipTooLow                       = metrics.GetOrRegisterCounter("astria/optimistic/txs_tip_too_low", nil)
 
 	executionOptimisticBlockTimer = metrics.GetOrRegisterTimer("astria/optimistic/execute_optimistic_block_time", nil)
 )
@@ -75,7 +76,8 @@ func (o *AuctionServiceV1Alpha1) GetBidStream(_ *auctionPb.GetBidStreamRequest, 
 				totalCost := big.NewInt(0)
 				effectiveTip, err := pendingTx.EffectiveGasTip(optimisticBlock.BaseFee)
 				if err != nil {
-					log.Warn("effective tip is too low", "effectiveTip", effectiveTip.String())
+					txsTipTooLow.Inc(1)
+					log.Debug("effective tip is too low", "effectiveTip", effectiveTip.String())
 					// don't throw an error but we should avoid streaming this bid
 					continue
 				}
