@@ -75,7 +75,7 @@ func (o *AuctionServiceV1Alpha1) GetBidStream(_ *auctionPb.GetBidStreamRequest, 
 				totalCost := big.NewInt(0)
 				effectiveTip, err := pendingTx.EffectiveGasTip(optimisticBlock.BaseFee)
 				if err != nil {
-					log.Error("effective tip is too low", "effectiveTip", effectiveTip.String())
+					log.Warn("effective tip is too low", "effectiveTip", effectiveTip.String())
 					// don't throw an error but we should avoid streaming this bid
 					continue
 				}
