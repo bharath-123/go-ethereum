@@ -76,6 +76,7 @@ func (o *AuctionServiceV1Alpha1) GetBidStream(_ *auctionPb.GetBidStreamRequest, 
 				effectiveTip, err := pendingTx.EffectiveGasTip(optimisticBlock.BaseFee)
 				if err != nil {
 					log.Error("effective tip is too low", "effectiveTip", effectiveTip.String())
+					// don't throw an error but we should avoid streaming this bid
 					continue
 				}
 				totalCost = totalCost.Mul(effectiveTip, big.NewInt(int64(pendingTx.Gas())))
