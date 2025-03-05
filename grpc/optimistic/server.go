@@ -11,7 +11,6 @@ import (
 	"errors"
 	"github.com/ethereum/go-ethereum/beacon/engine"
 	"github.com/ethereum/go-ethereum/common"
-	cmath "github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth"
@@ -42,6 +41,7 @@ var (
 	executeOptimisticBlockSuccessCount = metrics.GetOrRegisterCounter("astria/optimistic/execute_optimistic_block_success", nil)
 	optimisticBlockHeight              = metrics.GetOrRegisterGauge("astria/execution/optimistic_block_height", nil)
 	txsStreamedCount                   = metrics.GetOrRegisterCounter("astria/optimistic/txs_streamed", nil)
+	txsTipTooLow                       = metrics.GetOrRegisterCounter("astria/optimistic/txs_tip_too_low", nil)
 
 	executionOptimisticBlockTimer = metrics.GetOrRegisterTimer("astria/optimistic/execute_optimistic_block_time", nil)
 )
@@ -74,7 +74,13 @@ func (o *AuctionServiceV1Alpha1) GetBidStream(_ *auctionPb.GetBidStreamRequest, 
 				bid := auctionPb.Bid{}
 
 				totalCost := big.NewInt(0)
-				effectiveTip := cmath.BigMin(pendingTx.GasTipCap(), new(big.Int).Sub(pendingTx.GasFeeCap(), optimisticBlock.BaseFee))
+				effectiveTip, err := pendingTx.EffectiveGasTip(optimisticBlock.BaseFee)
+				// don't throw an error but we should avoid streaming this bid
+				if err != nil {
+					txsTipTooLow.Inc(1)
+					log.Debug("effective tip is too low", "effectiveTip", effectiveTip.String())
+					continue
+				}
 				totalCost = totalCost.Mul(effectiveTip, big.NewInt(int64(pendingTx.Gas())))
 
 				marshalledTxs := [][]byte{}
