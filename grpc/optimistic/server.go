@@ -209,6 +209,15 @@ func (o *AuctionServiceV1Alpha1) ExecuteOptimisticBlock(ctx context.Context, req
 
 	// the height that this block will be at
 	height := o.bc().CurrentBlock().Number.Uint64() + 1
+	blockTimestamp := uint64(req.GetTimestamp().GetSeconds())
+	var sequencerHashRef *common.Hash
+	if o.bc().Config().IsCancun(big.NewInt(int64(height)), blockTimestamp) {
+		if req.SequencerBlockHash == nil {
+			return nil, status.Error(codes.InvalidArgument, "Sequencer block hash must be set for Cancun block")
+		}
+		sequencerHash := common.BytesToHash(req.SequencerBlockHash)
+		sequencerHashRef = &sequencerHash
+	}
 
 	txsToProcess := o.unbundleRollupDataTransactions(req.Transactions, height, softBlock.Hash().Bytes())
 
@@ -220,6 +229,7 @@ func (o *AuctionServiceV1Alpha1) ExecuteOptimisticBlock(ctx context.Context, req
 		FeeRecipient:          nextFeeRecipient,
 		OverrideTransactions:  txsToProcess,
 		IsOptimisticExecution: true,
+		BeaconRoot:            sequencerHashRef,
 	}
 	payload, err := o.eth().Miner().BuildPayload(payloadAttributes)
 	if err != nil {
@@ -227,7 +237,7 @@ func (o *AuctionServiceV1Alpha1) ExecuteOptimisticBlock(ctx context.Context, req
 		return nil, status.Errorf(codes.InvalidArgument, shared.WrapError(err, "failed to build payload").Error())
 	}
 
-	block, err := engine.ExecutableDataToBlock(*payload.Resolve().ExecutionPayload, nil, nil)
+	block, err := engine.ExecutableDataToBlock(*payload.Resolve().ExecutionPayload, nil, sequencerHashRef)
 	if err != nil {
 		log.Error("failed to convert executable data to block", err)
 		return nil, status.Error(codes.Internal, shared.WrapError(err, "failed to convert executable data to block").Error())

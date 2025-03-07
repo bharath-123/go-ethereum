@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"github.com/ethereum/go-ethereum/eth"
 	"github.com/ethereum/go-ethereum/grpc/shared"
+	"math/big"
 	"sync"
 	"time"
 
@@ -169,6 +170,15 @@ func (s *ExecutionServiceServerV1) ExecuteBlock(ctx context.Context, req *astria
 
 	// the height that this block will be at
 	height := s.bc().CurrentBlock().Number.Uint64() + 1
+	blockTimestamp := uint64(req.GetTimestamp().GetSeconds())
+	var sequencerHashRef *common.Hash
+	if s.bc().Config().IsCancun(big.NewInt(int64(height)), blockTimestamp) {
+		if req.SequencerBlockHash == nil {
+			return nil, status.Error(codes.InvalidArgument, "Sequencer block hash must be set for Cancun block")
+		}
+		sequencerHash := common.BytesToHash(req.SequencerBlockHash)
+		sequencerHashRef = &sequencerHash
+	}
 
 	addressPrefix := s.bc().Config().AstriaSequencerAddressPrefix
 
@@ -186,6 +196,7 @@ func (s *ExecutionServiceServerV1) ExecuteBlock(ctx context.Context, req *astria
 		FeeRecipient:          s.nextFeeRecipient(),
 		OverrideTransactions:  types.Transactions{},
 		IsOptimisticExecution: false,
+		BeaconRoot:            sequencerHashRef,
 	}
 	payload, err := s.eth().Miner().BuildPayload(payloadAttributes)
 	if err != nil {
@@ -195,7 +206,7 @@ func (s *ExecutionServiceServerV1) ExecuteBlock(ctx context.Context, req *astria
 
 	// call blockchain.InsertChain to actually execute and write the blocks to
 	// state
-	block, err := engine.ExecutableDataToBlock(*payload.Resolve().ExecutionPayload, nil, nil)
+	block, err := engine.ExecutableDataToBlock(*payload.Resolve().ExecutionPayload, nil, sequencerHashRef)
 	if err != nil {
 		log.Error("failed to convert executable data to block", err)
 		return nil, status.Error(codes.Internal, shared.WrapError(err, "failed to convert executable data to block").Error())
