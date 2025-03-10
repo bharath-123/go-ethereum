@@ -180,8 +180,6 @@ func (s *ExecutionServiceServerV1) ExecuteBlock(ctx context.Context, req *astria
 		sequencerHashRef = &sequencerHash
 	}
 
-	addressPrefix := s.bc().Config().AstriaSequencerAddressPrefix
-
 	txsToProcess := s.unbundleRollupDataTransactions(req.Transactions, height, prevHeadHash.Bytes())
 
 	// This set of ordered TXs on the TxPool is has been configured to be used by
@@ -198,7 +196,7 @@ func (s *ExecutionServiceServerV1) ExecuteBlock(ctx context.Context, req *astria
 		IsOptimisticExecution: false,
 		BeaconRoot:            sequencerHashRef,
 	}
-	payload, err := s.eth().Miner().BuildPayload(payloadAttributes)
+	payload, err := s.eth().Miner().BuildPayload(payloadAttributes, false)
 	if err != nil {
 		log.Error("failed to build payload", "err", err)
 		return nil, status.Errorf(codes.InvalidArgument, shared.WrapError(err, "Could not build block with provided txs").Error())
@@ -206,12 +204,12 @@ func (s *ExecutionServiceServerV1) ExecuteBlock(ctx context.Context, req *astria
 
 	// call blockchain.InsertChain to actually execute and write the blocks to
 	// state
-	block, err := engine.ExecutableDataToBlock(*payload.Resolve().ExecutionPayload, nil, sequencerHashRef)
+	block, err := engine.ExecutableDataToBlock(*payload.Resolve().ExecutionPayload, nil, sequencerHashRef, nil)
 	if err != nil {
 		log.Error("failed to convert executable data to block", err)
 		return nil, status.Error(codes.Internal, shared.WrapError(err, "failed to convert executable data to block").Error())
 	}
-	err = s.bc().InsertBlockWithoutSetHead(block)
+	_, err = s.bc().InsertBlockWithoutSetHead(block, false)
 	if err != nil {
 		log.Error("failed to insert block to chain", "hash", block.Hash(), "prevHash", req.PrevBlockHash, "err", err)
 		return nil, status.Error(codes.Internal, shared.WrapError(err, "failed to insert block to chain").Error())
@@ -220,21 +218,14 @@ func (s *ExecutionServiceServerV1) ExecuteBlock(ctx context.Context, req *astria
 	// remove txs from original mempool
 	s.eth().TxPool().ClearAstriaOrdered()
 
-	res := &astriaPb.Block{
-		Number:          uint32(block.NumberU64()),
-		Hash:            block.Hash().Bytes(),
-		ParentBlockHash: block.ParentHash().Bytes(),
-		Timestamp: &timestamppb.Timestamp{
-			Seconds: int64(block.Time()),
-		},
-	}
+	res, _ := ethHeaderToExecutionBlock(block.Header())
 
 	if next, ok := s.bc().Config().AstriaFeeCollectors[res.Number+1]; ok {
 		s.setNextFeeRecipient(next)
 	}
 
 	if address, ok := s.bc().Config().AstriaAuctioneerAddresses[res.Number+1]; ok {
-		if err := shared.ValidateBech32mAddress(address, addressPrefix); err != nil {
+		if err := shared.ValidateBech32mAddress(address, s.bc().Config().AstriaSequencerAddressPrefix); err != nil {
 			log.Error("auctioneer address is not a valid bech32 address", "block", res.Number+1, "address", address)
 		}
 
@@ -389,7 +380,10 @@ func ethHeaderToExecutionBlock(header *types.Header) (*astriaPb.Block, error) {
 	if header == nil {
 		return nil, fmt.Errorf("cannot convert nil header to execution block")
 	}
-
+	var sequencerHashBytes []byte
+	if header.ParentBeaconRoot != nil {
+		sequencerHashBytes = header.ParentBeaconRoot.Bytes()
+	}
 	return &astriaPb.Block{
 		Number:          uint32(header.Number.Int64()),
 		Hash:            header.Hash().Bytes(),
@@ -397,6 +391,7 @@ func ethHeaderToExecutionBlock(header *types.Header) (*astriaPb.Block, error) {
 		Timestamp: &timestamppb.Timestamp{
 			Seconds: int64(header.Time),
 		},
+		SequencerBlockHash: sequencerHashBytes,
 	}, nil
 }
 

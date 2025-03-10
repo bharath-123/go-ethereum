@@ -231,13 +231,13 @@ func (o *AuctionServiceV1Alpha1) ExecuteOptimisticBlock(ctx context.Context, req
 		IsOptimisticExecution: true,
 		BeaconRoot:            sequencerHashRef,
 	}
-	payload, err := o.eth().Miner().BuildPayload(payloadAttributes)
+	payload, err := o.eth().Miner().BuildPayload(payloadAttributes, false)
 	if err != nil {
 		log.Error("failed to build payload", "err", err)
 		return nil, status.Errorf(codes.InvalidArgument, shared.WrapError(err, "failed to build payload").Error())
 	}
 
-	block, err := engine.ExecutableDataToBlock(*payload.Resolve().ExecutionPayload, nil, sequencerHashRef)
+	block, err := engine.ExecutableDataToBlock(*payload.Resolve().ExecutionPayload, nil, sequencerHashRef, nil)
 	if err != nil {
 		log.Error("failed to convert executable data to block", err)
 		return nil, status.Error(codes.Internal, shared.WrapError(err, "failed to convert executable data to block").Error())
@@ -245,7 +245,7 @@ func (o *AuctionServiceV1Alpha1) ExecuteOptimisticBlock(ctx context.Context, req
 
 	// this will insert the optimistic block into the chain and persist its state without
 	// setting it as the HEAD.
-	err = o.bc().InsertBlockWithoutSetHead(block)
+	_, err = o.bc().InsertBlockWithoutSetHead(block, false)
 	if err != nil {
 		log.Error("failed to insert block to chain", "hash", block.Hash(), "prevHash", block.ParentHash(), "err", err)
 		return nil, status.Error(codes.Internal, shared.WrapError(err, "failed to insert block to chain").Error())

@@ -27,7 +27,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
-	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -105,7 +104,7 @@ func init() {
 
 func testTwoOperandOp(t *testing.T, tests []TwoOperandTestcase, opFn executionFunc, name string) {
 	var (
-		env            = NewEVM(BlockContext{}, TxContext{}, nil, params.TestChainConfig, Config{})
+		env            = NewEVM(BlockContext{BlockNumber: big.NewInt(0)}, TxContext{}, nil, params.TestChainConfig, Config{})
 		stack          = newstack()
 		pc             = uint64(0)
 		evmInterpreter = env.interpreter
@@ -204,7 +203,7 @@ func TestSAR(t *testing.T) {
 
 func TestAddMod(t *testing.T) {
 	var (
-		env            = NewEVM(BlockContext{}, TxContext{}, nil, params.TestChainConfig, Config{})
+		env            = NewEVM(BlockContext{BlockNumber: big.NewInt(0)}, TxContext{}, nil, params.TestChainConfig, Config{})
 		stack          = newstack()
 		evmInterpreter = NewEVMInterpreter(env)
 		pc             = uint64(0)
@@ -248,7 +247,7 @@ func TestWriteExpectedValues(t *testing.T) {
 	// getResult is a convenience function to generate the expected values
 	getResult := func(args []*twoOperandParams, opFn executionFunc) []TwoOperandTestcase {
 		var (
-			env         = NewEVM(BlockContext{}, TxContext{}, nil, params.TestChainConfig, Config{})
+			env         = NewEVM(BlockContext{BlockNumber: big.NewInt(0)}, TxContext{}, nil, params.TestChainConfig, Config{})
 			stack       = newstack()
 			pc          = uint64(0)
 			interpreter = env.interpreter
@@ -293,7 +292,7 @@ func TestJsonTestcases(t *testing.T) {
 
 func opBenchmark(bench *testing.B, op executionFunc, args ...string) {
 	var (
-		env            = NewEVM(BlockContext{}, TxContext{}, nil, params.TestChainConfig, Config{})
+		env            = NewEVM(BlockContext{BlockNumber: big.NewInt(0)}, TxContext{}, nil, params.TestChainConfig, Config{})
 		stack          = newstack()
 		scope          = &ScopeContext{nil, stack, nil}
 		evmInterpreter = NewEVMInterpreter(env)
@@ -534,7 +533,7 @@ func BenchmarkOpIsZero(b *testing.B) {
 
 func TestOpMstore(t *testing.T) {
 	var (
-		env            = NewEVM(BlockContext{}, TxContext{}, nil, params.TestChainConfig, Config{})
+		env            = NewEVM(BlockContext{BlockNumber: big.NewInt(0)}, TxContext{}, nil, params.TestChainConfig, Config{})
 		stack          = newstack()
 		mem            = NewMemory()
 		evmInterpreter = NewEVMInterpreter(env)
@@ -560,7 +559,7 @@ func TestOpMstore(t *testing.T) {
 
 func BenchmarkOpMstore(bench *testing.B) {
 	var (
-		env            = NewEVM(BlockContext{}, TxContext{}, nil, params.TestChainConfig, Config{})
+		env            = NewEVM(BlockContext{BlockNumber: big.NewInt(0)}, TxContext{}, nil, params.TestChainConfig, Config{})
 		stack          = newstack()
 		mem            = NewMemory()
 		evmInterpreter = NewEVMInterpreter(env)
@@ -582,8 +581,8 @@ func BenchmarkOpMstore(bench *testing.B) {
 
 func TestOpTstore(t *testing.T) {
 	var (
-		statedb, _     = state.New(types.EmptyRootHash, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
-		env            = NewEVM(BlockContext{}, TxContext{}, statedb, params.TestChainConfig, Config{})
+		statedb, _     = state.New(types.EmptyRootHash, state.NewDatabaseForTesting())
+		env            = NewEVM(BlockContext{BlockNumber: big.NewInt(0)}, TxContext{}, statedb, params.TestChainConfig, Config{})
 		stack          = newstack()
 		mem            = NewMemory()
 		evmInterpreter = NewEVMInterpreter(env)
@@ -625,7 +624,7 @@ func TestOpTstore(t *testing.T) {
 
 func BenchmarkOpKeccak256(bench *testing.B) {
 	var (
-		env            = NewEVM(BlockContext{}, TxContext{}, nil, params.TestChainConfig, Config{})
+		env            = NewEVM(BlockContext{BlockNumber: big.NewInt(0)}, TxContext{}, nil, params.TestChainConfig, Config{})
 		stack          = newstack()
 		mem            = NewMemory()
 		evmInterpreter = NewEVMInterpreter(env)
@@ -643,7 +642,7 @@ func BenchmarkOpKeccak256(bench *testing.B) {
 	}
 }
 
-func TestCreate2Addreses(t *testing.T) {
+func TestCreate2Addresses(t *testing.T) {
 	type testcase struct {
 		origin   string
 		salt     string
@@ -729,7 +728,7 @@ func TestRandom(t *testing.T) {
 		{name: "hash(0x010203)", random: crypto.Keccak256Hash([]byte{0x01, 0x02, 0x03})},
 	} {
 		var (
-			env            = NewEVM(BlockContext{Random: &tt.random}, TxContext{}, nil, params.TestChainConfig, Config{})
+			env            = NewEVM(BlockContext{Random: &tt.random, BlockNumber: big.NewInt(0)}, TxContext{}, nil, params.TestChainConfig, Config{})
 			stack          = newstack()
 			pc             = uint64(0)
 			evmInterpreter = env.interpreter
@@ -770,7 +769,7 @@ func TestBlobHash(t *testing.T) {
 		{name: "out-of-bounds (nil)", idx: 25, expect: zero, hashes: nil},
 	} {
 		var (
-			env            = NewEVM(BlockContext{}, TxContext{BlobHashes: tt.hashes}, nil, params.TestChainConfig, Config{})
+			env            = NewEVM(BlockContext{BlockNumber: big.NewInt(0)}, TxContext{BlobHashes: tt.hashes}, nil, params.TestChainConfig, Config{})
 			stack          = newstack()
 			pc             = uint64(0)
 			evmInterpreter = env.interpreter
@@ -873,7 +872,7 @@ func TestOpMCopy(t *testing.T) {
 		},
 	} {
 		var (
-			env            = NewEVM(BlockContext{}, TxContext{}, nil, params.TestChainConfig, Config{})
+			env            = NewEVM(BlockContext{BlockNumber: big.NewInt(0)}, TxContext{}, nil, params.TestChainConfig, Config{})
 			stack          = newstack()
 			pc             = uint64(0)
 			evmInterpreter = env.interpreter
@@ -925,6 +924,78 @@ func TestOpMCopy(t *testing.T) {
 		wantGas := tc.wantGas
 		if haveGas != wantGas {
 			t.Errorf("case %d: gas wrong, want %d have %d\n", i, wantGas, haveGas)
+		}
+	}
+}
+
+// TestPush sanity-checks how code with immediates are handled when the code size is
+// smaller than the size of the immediate.
+func TestPush(t *testing.T) {
+	code := common.FromHex("0011223344556677889900aabbccddeeff0102030405060708090a0b0c0d0e0ff1e1d1c1b1a19181716151413121")
+
+	push32 := makePush(32, 32)
+
+	scope := &ScopeContext{
+		Memory: nil,
+		Stack:  newstack(),
+		Contract: &Contract{
+			Code: code,
+		},
+	}
+	for i, want := range []string{
+		"0x11223344556677889900aabbccddeeff0102030405060708090a0b0c0d0e0ff1",
+		"0x223344556677889900aabbccddeeff0102030405060708090a0b0c0d0e0ff1e1",
+		"0x3344556677889900aabbccddeeff0102030405060708090a0b0c0d0e0ff1e1d1",
+		"0x44556677889900aabbccddeeff0102030405060708090a0b0c0d0e0ff1e1d1c1",
+		"0x556677889900aabbccddeeff0102030405060708090a0b0c0d0e0ff1e1d1c1b1",
+		"0x6677889900aabbccddeeff0102030405060708090a0b0c0d0e0ff1e1d1c1b1a1",
+		"0x77889900aabbccddeeff0102030405060708090a0b0c0d0e0ff1e1d1c1b1a191",
+		"0x889900aabbccddeeff0102030405060708090a0b0c0d0e0ff1e1d1c1b1a19181",
+		"0x9900aabbccddeeff0102030405060708090a0b0c0d0e0ff1e1d1c1b1a1918171",
+		"0xaabbccddeeff0102030405060708090a0b0c0d0e0ff1e1d1c1b1a191817161",
+		"0xaabbccddeeff0102030405060708090a0b0c0d0e0ff1e1d1c1b1a19181716151",
+		"0xbbccddeeff0102030405060708090a0b0c0d0e0ff1e1d1c1b1a1918171615141",
+		"0xccddeeff0102030405060708090a0b0c0d0e0ff1e1d1c1b1a191817161514131",
+		"0xddeeff0102030405060708090a0b0c0d0e0ff1e1d1c1b1a19181716151413121",
+		"0xeeff0102030405060708090a0b0c0d0e0ff1e1d1c1b1a1918171615141312100",
+		"0xff0102030405060708090a0b0c0d0e0ff1e1d1c1b1a191817161514131210000",
+		"0x102030405060708090a0b0c0d0e0ff1e1d1c1b1a19181716151413121000000",
+		"0x2030405060708090a0b0c0d0e0ff1e1d1c1b1a1918171615141312100000000",
+		"0x30405060708090a0b0c0d0e0ff1e1d1c1b1a191817161514131210000000000",
+		"0x405060708090a0b0c0d0e0ff1e1d1c1b1a19181716151413121000000000000",
+		"0x5060708090a0b0c0d0e0ff1e1d1c1b1a1918171615141312100000000000000",
+		"0x60708090a0b0c0d0e0ff1e1d1c1b1a191817161514131210000000000000000",
+		"0x708090a0b0c0d0e0ff1e1d1c1b1a19181716151413121000000000000000000",
+		"0x8090a0b0c0d0e0ff1e1d1c1b1a1918171615141312100000000000000000000",
+		"0x90a0b0c0d0e0ff1e1d1c1b1a191817161514131210000000000000000000000",
+		"0xa0b0c0d0e0ff1e1d1c1b1a19181716151413121000000000000000000000000",
+		"0xb0c0d0e0ff1e1d1c1b1a1918171615141312100000000000000000000000000",
+		"0xc0d0e0ff1e1d1c1b1a191817161514131210000000000000000000000000000",
+		"0xd0e0ff1e1d1c1b1a19181716151413121000000000000000000000000000000",
+		"0xe0ff1e1d1c1b1a1918171615141312100000000000000000000000000000000",
+		"0xff1e1d1c1b1a191817161514131210000000000000000000000000000000000",
+		"0xf1e1d1c1b1a19181716151413121000000000000000000000000000000000000",
+		"0xe1d1c1b1a1918171615141312100000000000000000000000000000000000000",
+		"0xd1c1b1a191817161514131210000000000000000000000000000000000000000",
+		"0xc1b1a19181716151413121000000000000000000000000000000000000000000",
+		"0xb1a1918171615141312100000000000000000000000000000000000000000000",
+		"0xa191817161514131210000000000000000000000000000000000000000000000",
+		"0x9181716151413121000000000000000000000000000000000000000000000000",
+		"0x8171615141312100000000000000000000000000000000000000000000000000",
+		"0x7161514131210000000000000000000000000000000000000000000000000000",
+		"0x6151413121000000000000000000000000000000000000000000000000000000",
+		"0x5141312100000000000000000000000000000000000000000000000000000000",
+		"0x4131210000000000000000000000000000000000000000000000000000000000",
+		"0x3121000000000000000000000000000000000000000000000000000000000000",
+		"0x2100000000000000000000000000000000000000000000000000000000000000",
+		"0x0",
+	} {
+		pc := new(uint64)
+		*pc = uint64(i)
+		push32(pc, nil, scope)
+		res := scope.Stack.pop()
+		if have := res.Hex(); have != want {
+			t.Fatalf("case %d, have %v want %v", i, have, want)
 		}
 	}
 }
