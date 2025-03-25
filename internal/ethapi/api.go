@@ -55,7 +55,9 @@ import (
 // allowed to produce in order to speed up calculations.
 const estimateGasErrorRatio = 0.015
 
-var errBlobTxNotSupported = errors.New("signing blob transactions not supported")
+var errBlobTxNotSupported = errors.New("blob transactions not supported")
+var errDepositTxNotSupported = errors.New("deposit transactions not supported")
+var errOptimisticBlockBehind = errors.New("optimistic block not in sync")
 
 // EthereumAPI provides an API to access Ethereum related information.
 type EthereumAPI struct {
@@ -493,6 +495,7 @@ func (api *BlockChainAPI) GetHeaderByHash(ctx context.Context, hash common.Hash)
 //   - When blockNr is -2 the chain latest block is returned.
 //   - When blockNr is -3 the chain finalized block is returned.
 //   - When blockNr is -4 the chain safe block is returned.
+//   - When blockNr is -5 the chain optimistic block is returned.
 //   - When fullTx is true all transactions in the block are returned, otherwise
 //     only the transaction hash is returned.
 func (api *BlockChainAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (map[string]interface{}, error) {
@@ -1556,18 +1559,62 @@ func (api *TransactionAPI) sign(addr common.Address, tx *types.Transaction) (*ty
 
 // SubmitTransaction is a helper function that submits tx to txPool and logs a message.
 func SubmitTransaction(ctx context.Context, b Backend, tx *types.Transaction) (common.Hash, error) {
+	// if we are running the flame node in auctioneer mode. we need to reject transactions being sent if the optimistic block
+	// height deviates from the soft block height by more than 1 block. The optimistic block is either one block ahead of the
+	// soft block or is at the same height as that of the soft block.
+	// If the soft block deviates from the optimistic block by more than 1 block, then we risk validating searcher transactions
+	// on older state since we do stateful validation of searcher txs on optimistic blocks. This is an undesirable situation and we
+	// ideally want to fix this deviation between optimistic blocks and soft blocks before allowing searchers to submit txs.
+	if b.AuctioneerEnabled() {
+		optimisticBlock, err := b.BlockByNumber(ctx, rpc.OptimisticBlockNumber)
+		if err != nil {
+			return common.Hash{}, err
+		}
+		softBlock, err := b.BlockByNumber(ctx, rpc.SafeBlockNumber)
+		if err != nil {
+			return common.Hash{}, err
+		}
+
+		// it is enough to check if the soft block height is more than the optimistic block height as a condition to detect issues with
+		// optimistic block execution. We take the below conditions to understand why:
+		// can we have optimistic_block.height > soft block.height? Optimistic block can only be greater than soft block by 1 block at any given point.
+		// this is because the optimistic block is always built on top of the current soft block. This case can never happen
+		// can we have optimistic_block.height == soft_block.height? This happens when conductor executes the soft block after auctioneer successfully
+		// executes the optimistic block. It is a scenario we expect to happen.
+		// can we have optimistic_block.height < soft_block.height. This should never happen. This can happen when optimistic block execution
+		// stops for w/e reason. If this happens we should disallow searchers from being able to send transactions.
+		if softBlock.Number().Cmp(optimisticBlock.Number()) > 0 {
+			log.Error("Optimistic block is behind soft block", "optimisticBlock", optimisticBlock.Number(), "softBlock", softBlock.Number())
+			return common.Hash{}, errOptimisticBlockBehind
+		}
+	}
+
+	if tx.Type() == types.BlobTxType {
+		return common.Hash{}, errBlobTxNotSupported
+	}
+	if tx.Type() == types.DepositTxType {
+		return common.Hash{}, errDepositTxNotSupported
+	}
+
 	// If the transaction fee cap is already specified, ensure the
 	// fee of the given transaction is _reasonable_.
 	if err := checkTxFee(tx.GasPrice(), tx.Gas(), b.RPCTxFeeCap()); err != nil {
+		return common.Hash{}, err
+	}
+	// Validate the transaction's effective gas tip is higher than the baseFee
+	if err := checkTxBaseFee(b.ChainConfig(), b.CurrentBlock().Number.Uint64(), tx); err != nil {
 		return common.Hash{}, err
 	}
 	if !b.UnprotectedAllowed() && !tx.Protected() {
 		// Ensure only eip155 signed transactions are submitted if EIP155Required is set.
 		return common.Hash{}, errors.New("only replay-protected (EIP-155) transactions allowed over RPC")
 	}
+
+	// save transaction in geth mempool as well, so things like forge can look it up
 	if err := b.SendTx(ctx, tx); err != nil {
 		return common.Hash{}, err
 	}
+
 	// Print a log with full tx details for manual investigations and interventions
 	head := b.CurrentBlock()
 	signer := types.MakeSigner(b.ChainConfig(), head.Number, head.Time)
@@ -1601,6 +1648,9 @@ func (api *TransactionAPI) SendTransaction(ctx context.Context, args Transaction
 		// the same nonce to multiple accounts.
 		api.nonceLock.LockAddr(args.from())
 		defer api.nonceLock.UnlockAddr(args.from())
+	}
+	if args.IsEIP4844() {
+		return common.Hash{}, errBlobTxNotSupported
 	}
 	if args.IsEIP4844() {
 		return common.Hash{}, errBlobTxNotSupported
@@ -1703,6 +1753,9 @@ func (api *TransactionAPI) SignTransaction(ctx context.Context, args Transaction
 	if err := checkTxFee(tx.GasPrice(), tx.Gas(), api.b.RPCTxFeeCap()); err != nil {
 		return nil, err
 	}
+	if err := checkTxBaseFee(api.b.ChainConfig(), api.b.CurrentBlock().Number.Uint64(), tx); err != nil {
+		return nil, err
+	}
 	signed, err := api.sign(args.from(), tx)
 	if err != nil {
 		return nil, err
@@ -1769,6 +1822,9 @@ func (api *TransactionAPI) Resend(ctx context.Context, sendArgs TransactionArgs,
 		gas = uint64(*gasLimit)
 	}
 	if err := checkTxFee(price, gas, api.b.RPCTxFeeCap()); err != nil {
+		return common.Hash{}, err
+	}
+	if err := checkTxBaseFee(api.b.ChainConfig(), api.b.CurrentBlock().Number.Uint64(), matchTx); err != nil {
 		return common.Hash{}, err
 	}
 	// Iterate the pending list for replacement
@@ -1971,4 +2027,15 @@ func checkTxFee(gasPrice *big.Int, gas uint64, cap float64) error {
 		return fmt.Errorf("tx fee (%.2f ether) exceeds the configured cap (%.2f ether)", feeFloat, cap)
 	}
 	return nil
+}
+
+func checkTxBaseFee(chainConfig *params.ChainConfig, blockNum uint64, tx *types.Transaction) error {
+	if chainConfig.AstriaEIP1559Params == nil {
+		return nil
+	}
+
+	baseFee := chainConfig.AstriaEIP1559Params.MinBaseFeeAt(blockNum)
+	_, err := tx.EffectiveGasTip(baseFee)
+
+	return err
 }

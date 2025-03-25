@@ -245,6 +245,9 @@ const (
 	// account within the same tx (captured at end of tx).
 	// Note it doesn't account for a self-destruct which appoints itself as recipient.
 	BalanceDecreaseSelfdestructBurn BalanceChangeReason = 14
+
+	// BalanceIncreaseAstriaDepositTx is ether deposited to the user via an
+	BalanceIncreaseAstriaDepositTx BalanceChangeReason = 15
 )
 
 // GasChangeReason is used to indicate the reason for a gas change, useful
@@ -301,6 +304,7 @@ const (
 	GasChangeCallStorageColdAccess GasChangeReason = 13
 	// GasChangeCallFailedExecution is the burning of the remaining gas when the execution failed without a revert.
 	GasChangeCallFailedExecution GasChangeReason = 14
+
 	// GasChangeWitnessContractInit flags the event of adding to the witness during the contract creation initialization step.
 	GasChangeWitnessContractInit GasChangeReason = 15
 	// GasChangeWitnessContractCreation flags the event of adding to the witness during the contract creation finalization step.

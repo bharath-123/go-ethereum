@@ -37,13 +37,16 @@ import (
 // Check engine-api specification for more details.
 // https://github.com/ethereum/execution-apis/blob/main/src/engine/cancun.md#payloadattributesv3
 type BuildPayloadArgs struct {
-	Parent       common.Hash           // The parent block to build payload on top
-	Timestamp    uint64                // The provided timestamp of generated payload
-	FeeRecipient common.Address        // The provided recipient address for collecting transaction fee
-	Random       common.Hash           // The provided randomness value
-	Withdrawals  types.Withdrawals     // The provided withdrawals
-	BeaconRoot   *common.Hash          // The provided beaconRoot (Cancun)
-	Version      engine.PayloadVersion // Versioning byte for payload id calculation.
+	Parent               common.Hash           // The parent block to build payload on top
+	Timestamp            uint64                // The provided timestamp of generated payload
+	FeeRecipient         common.Address        // The provided recipient address for collecting transaction fee
+	Random               common.Hash           // The provided randomness value
+	Withdrawals          types.Withdrawals     // The provided withdrawals
+	BeaconRoot           *common.Hash          // The provided beaconRoot (Cancun)
+	Version              engine.PayloadVersion // Versioning byte for payload id calculation.
+	OverrideTransactions types.Transactions    // Transactions to use during payload building. Currently this is mainly used
+	// during optimistic block execution.
+	IsOptimisticExecution bool // Whether the payload is for optimistic execution
 }
 
 // Id computes an 8-byte identifier by hashing the components of the payload arguments.
@@ -210,66 +213,30 @@ func (miner *Miner) buildPayload(args *BuildPayloadArgs, witness bool) (*Payload
 	// Build the initial version with no transaction included. It should be fast
 	// enough to run. The empty payload can at least make sure there is something
 	// to deliver for not missing slot.
-	emptyParams := &generateParams{
-		timestamp:   args.Timestamp,
-		forceTime:   true,
-		parentHash:  args.Parent,
-		coinbase:    args.FeeRecipient,
-		random:      args.Random,
-		withdrawals: args.Withdrawals,
-		beaconRoot:  args.BeaconRoot,
-		noTxs:       true,
+	fullParams := &generateParams{
+		timestamp:             args.Timestamp,
+		forceTime:             true,
+		parentHash:            args.Parent,
+		coinbase:              args.FeeRecipient,
+		random:                args.Random,
+		withdrawals:           args.Withdrawals,
+		beaconRoot:            args.BeaconRoot,
+		noTxs:                 false,
+		overrideTransactions:  args.OverrideTransactions,
+		isOptimisticExecution: args.IsOptimisticExecution,
 	}
-	empty := miner.generateWork(emptyParams, witness)
-	if empty.err != nil {
-		return nil, empty.err
+
+	start := time.Now()
+	full := miner.generateWork(fullParams, witness)
+	if full.err != nil {
+		return nil, full.err
 	}
 	// Construct a payload object for return.
-	payload := newPayload(empty.block, empty.requests, empty.witness, args.Id())
+	payload := newPayload(full.block, full.requests, full.witness, args.Id())
 
-	// Spin up a routine for updating the payload in background. This strategy
-	// can maximum the revenue for including transactions with highest fee.
-	go func() {
-		// Setup the timer for re-building the payload. The initial clock is kept
-		// for triggering process immediately.
-		timer := time.NewTimer(0)
-		defer timer.Stop()
+	// Add the updated block to the payload
+	payload.update(full, time.Since(start))
+	log.Info("Stopping work on payload", "id", payload.id, "reason", "delivery")
 
-		// Setup the timer for terminating the process if SECONDS_PER_SLOT (12s in
-		// the Mainnet configuration) have passed since the point in time identified
-		// by the timestamp parameter.
-		endTimer := time.NewTimer(time.Second * 12)
-
-		fullParams := &generateParams{
-			timestamp:   args.Timestamp,
-			forceTime:   true,
-			parentHash:  args.Parent,
-			coinbase:    args.FeeRecipient,
-			random:      args.Random,
-			withdrawals: args.Withdrawals,
-			beaconRoot:  args.BeaconRoot,
-			noTxs:       false,
-		}
-
-		for {
-			select {
-			case <-timer.C:
-				start := time.Now()
-				r := miner.generateWork(fullParams, witness)
-				if r.err == nil {
-					payload.update(r, time.Since(start))
-				} else {
-					log.Info("Error while generating work", "id", payload.id, "err", r.err)
-				}
-				timer.Reset(miner.config.Recommit)
-			case <-payload.stop:
-				log.Info("Stopping work on payload", "id", payload.id, "reason", "delivery")
-				return
-			case <-endTimer.C:
-				log.Info("Stopping work on payload", "id", payload.id, "reason", "timeout")
-				return
-			}
-		}
-	}()
 	return payload, nil
 }

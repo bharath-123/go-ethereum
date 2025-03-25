@@ -35,7 +35,6 @@ type testchain struct {
 
 func TestEra1Builder(t *testing.T) {
 	t.Parallel()
-
 	// Get temp directory.
 	f, err := os.CreateTemp("", "era1-test")
 	if err != nil {

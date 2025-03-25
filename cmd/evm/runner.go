@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/urfave/cli/v2"
 	"io"
 	"math/big"
 	"os"
@@ -42,7 +43,6 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/triedb"
 	"github.com/ethereum/go-ethereum/triedb/hashdb"
-	"github.com/urfave/cli/v2"
 )
 
 var runCommand = &cli.Command{

@@ -103,6 +103,11 @@ var (
 	slotsGauge   = metrics.NewRegisteredGauge("txpool/slots", nil)
 
 	reheapTimer = metrics.NewRegisteredTimer("txpool/reheap", nil)
+
+	// Metrics related to the astria ordered txs
+	astriaValidMeter             = metrics.GetOrRegisterMeter("astria/txpool/valid", nil)
+	astriaExcludedFromBlockMeter = metrics.GetOrRegisterMeter("astria/txpool/excludedFromBlock", nil)
+	astriaRequestedMeter         = metrics.GetOrRegisterMeter("astria/txpool/requested", nil)
 )
 
 // BlockChain defines the minimal set of methods needed to back a tx pool with
@@ -202,13 +207,16 @@ func (config *Config) sanitize() Config {
 // current state) and future transactions. Transactions move between those
 // two states over time as they are received and processed.
 type LegacyPool struct {
-	config      Config
-	chainconfig *params.ChainConfig
-	chain       BlockChain
-	gasTip      atomic.Pointer[uint256.Int]
-	txFeed      event.Feed
-	signer      types.Signer
-	mu          sync.RWMutex
+	config           Config
+	chainconfig      *params.ChainConfig
+	chain            BlockChain
+	gasTip           atomic.Pointer[uint256.Int]
+	txFeed           event.Feed
+	mempoolClearFeed event.Feed
+	signer           types.Signer
+	mu               sync.RWMutex
+
+	astria *astriaOrdered
 
 	currentHead   atomic.Pointer[types.Header] // Current head of the blockchain
 	currentState  *state.StateDB               // Current state in the blockchain head
@@ -233,6 +241,8 @@ type LegacyPool struct {
 	initDoneCh      chan struct{}  // is closed once the pool is initialized (for tests)
 
 	changesSinceReorg int // A counter for how many drops we've performed in-between reorg.
+
+	auctioneerEnabled bool
 }
 
 type txpoolResetRequest struct {
@@ -241,26 +251,27 @@ type txpoolResetRequest struct {
 
 // New creates a new transaction pool to gather, sort and filter inbound
 // transactions from the network.
-func New(config Config, chain BlockChain) *LegacyPool {
+func New(config Config, chain BlockChain, auctioneerEnabled bool) *LegacyPool {
 	// Sanitize the input to ensure no vulnerable gas prices are set
 	config = (&config).sanitize()
 
 	// Create the transaction pool with its initial settings
 	pool := &LegacyPool{
-		config:          config,
-		chain:           chain,
-		chainconfig:     chain.Config(),
-		signer:          types.LatestSigner(chain.Config()),
-		pending:         make(map[common.Address]*list),
-		queue:           make(map[common.Address]*list),
-		beats:           make(map[common.Address]time.Time),
-		all:             newLookup(),
-		reqResetCh:      make(chan *txpoolResetRequest),
-		reqPromoteCh:    make(chan *accountSet),
-		queueTxEventCh:  make(chan *types.Transaction),
-		reorgDoneCh:     make(chan chan struct{}),
-		reorgShutdownCh: make(chan struct{}),
-		initDoneCh:      make(chan struct{}),
+		config:            config,
+		chain:             chain,
+		chainconfig:       chain.Config(),
+		signer:            types.LatestSigner(chain.Config()),
+		pending:           make(map[common.Address]*list),
+		queue:             make(map[common.Address]*list),
+		beats:             make(map[common.Address]time.Time),
+		all:               newLookup(),
+		reqResetCh:        make(chan *txpoolResetRequest),
+		reqPromoteCh:      make(chan *accountSet),
+		queueTxEventCh:    make(chan *types.Transaction),
+		reorgDoneCh:       make(chan chan struct{}),
+		reorgShutdownCh:   make(chan struct{}),
+		initDoneCh:        make(chan struct{}),
+		auctioneerEnabled: auctioneerEnabled,
 	}
 	pool.locals = newAccountSet(pool.signer)
 	for _, addr := range config.Locals {
@@ -273,6 +284,92 @@ func New(config Config, chain BlockChain) *LegacyPool {
 		pool.journal = newTxJournal(config.Journal)
 	}
 	return pool
+}
+
+type astriaOrdered struct {
+	valid             types.Transactions
+	excludedFromBlock types.Transactions
+	pool              *LegacyPool
+}
+
+func newAstriaOrdered(valid types.Transactions, pool *LegacyPool) *astriaOrdered {
+	astriaValidMeter.Mark(int64(len(valid)))
+
+	return &astriaOrdered{
+		valid:             valid,
+		excludedFromBlock: types.Transactions{},
+		pool:              pool,
+	}
+}
+
+func (ao *astriaOrdered) clear() {
+	ao.valid = types.Transactions{}
+	ao.excludedFromBlock = types.Transactions{}
+}
+
+func (pool *LegacyPool) ValidateTx(tx *types.Transaction) error {
+	return pool.validateTxBasics(tx, false)
+}
+
+func (pool *LegacyPool) SetAstriaOrdered(txs types.Transactions) {
+	astriaRequestedMeter.Mark(int64(len(txs)))
+
+	valid := []*types.Transaction{}
+	for idx, tx := range txs {
+		err := pool.validateTxBasics(tx, false)
+		if err != nil {
+			log.Warn("astria tx failed validation", "index", idx, "hash", tx.Hash(), "error", err)
+			continue
+		}
+
+		valid = append(valid, tx)
+	}
+
+	pool.astria = newAstriaOrdered(valid, pool)
+}
+
+func (pool *LegacyPool) AddToAstriaExcludedFromBlock(tx *types.Transaction) {
+	if pool.astria.excludedFromBlock == nil {
+		pool.astria.excludedFromBlock = types.Transactions{tx}
+		return
+	}
+
+	pool.astria.excludedFromBlock = append(pool.astria.excludedFromBlock, tx)
+}
+
+func (pool *LegacyPool) AstriaExcludedFromBlock() *types.Transactions {
+	if pool.astria == nil {
+		return &types.Transactions{}
+	}
+	return &pool.astria.excludedFromBlock
+}
+
+func (pool *LegacyPool) ClearAstriaOrdered() {
+	if pool.astria == nil {
+		return
+	}
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+
+	astriaExcludedFromBlockMeter.Mark(int64(len(pool.astria.excludedFromBlock)))
+	for _, tx := range pool.astria.excludedFromBlock {
+		n := pool.removeTx(tx.Hash(), false, true)
+		if n == 0 {
+			log.Trace("astria tx excluded from block not found in mempool", "hash", tx.Hash())
+		} else {
+			log.Trace("astria tx excluded from block removed from mempool", "hash", tx.Hash())
+		}
+	}
+
+	pool.astria.clear()
+}
+
+func (pool *LegacyPool) AstriaOrdered() *types.Transactions {
+	// sus but whatever
+	if pool.astria == nil {
+		return &types.Transactions{}
+	}
+	return &pool.astria.valid
 }
 
 // Filter returns whether the given transaction can be consumed by the legacy
@@ -428,6 +525,12 @@ func (pool *LegacyPool) SubscribeTransactions(ch chan<- core.NewTxsEvent, reorgs
 	// is because the new txs are added to the queue, resurrected ones too and
 	// reorgs run lazily, so separating the two would need a marker.
 	return pool.txFeed.Subscribe(ch)
+}
+
+// SubscribeTransactions registers a subscription for the event which is triggered
+// when the mempool is cleared after a reset
+func (pool *LegacyPool) SubscribeMempoolClearance(ch chan<- core.NewMempoolCleared) event.Subscription {
+	return pool.mempoolClearFeed.Subscribe(ch)
 }
 
 // SetGasTip updates the minimum gas tip required by the transaction pool for a
@@ -611,7 +714,8 @@ func (pool *LegacyPool) validateTxBasics(tx *types.Transaction, local bool) erro
 		Accept: 0 |
 			1<<types.LegacyTxType |
 			1<<types.AccessListTxType |
-			1<<types.DynamicFeeTxType,
+			1<<types.DynamicFeeTxType |
+			1<<types.DepositTxType,
 		MaxSize: txMaxSize,
 		MinTip:  pool.gasTip.Load().ToBig(),
 	}
@@ -1280,8 +1384,18 @@ func (pool *LegacyPool) runReorg(done chan struct{}, reset *txpoolResetRequest, 
 	}
 	pool.mu.Lock()
 	if reset != nil {
-		// Reset from the old head to the new, rescheduling any reorged transactions
-		pool.reset(reset.oldHead, reset.newHead)
+		// only reset the state root and the head of the txpool when we are running the auctioneer node.
+		// when we are not running the auctioneer node, we re-inject any re-orged transactions which is similar
+		// to the current functionality of geth
+		if pool.auctioneerEnabled {
+			// only reset from the old head to the new head.
+			// since we will be clearing the mempool, we do not need to re-inject any re-orged transactions
+			pool.resetHeadOnly(reset.oldHead, reset.newHead)
+		} else {
+			// this is current functionality of geth
+			// Reset from the old head to the new, rescheduling any reorged transactions
+			pool.reset(reset.oldHead, reset.newHead)
+		}
 
 		// Nonces were reset, discard any events that became stale
 		for addr := range events {
@@ -1290,7 +1404,6 @@ func (pool *LegacyPool) runReorg(done chan struct{}, reset *txpoolResetRequest, 
 				delete(events, addr)
 			}
 		}
-		// Reset needs promote for all addresses
 		promoteAddrs = make([]common.Address, 0, len(pool.queue))
 		for addr := range pool.queue {
 			promoteAddrs = append(promoteAddrs, addr)
@@ -1303,7 +1416,14 @@ func (pool *LegacyPool) runReorg(done chan struct{}, reset *txpoolResetRequest, 
 	// remove any transaction that has been included in the block or was invalidated
 	// because of another transaction (e.g. higher gas price).
 	if reset != nil {
-		pool.demoteUnexecutables()
+		if pool.auctioneerEnabled {
+			// if we are running the pool as an auctioneer, then we should clear the mempool each time the head
+			// is reset
+			pool.clearPendingAndQueued()
+		} else {
+			// this is the current functionality of geth
+			pool.demoteUnexecutables()
+		}
 		if reset.newHead != nil {
 			if pool.chainconfig.IsLondon(new(big.Int).Add(reset.newHead.Number, big.NewInt(1))) {
 				pendingBaseFee := eip1559.CalcBaseFee(pool.chainconfig, reset.newHead)
@@ -1327,6 +1447,11 @@ func (pool *LegacyPool) runReorg(done chan struct{}, reset *txpoolResetRequest, 
 	dropBetweenReorgHistogram.Update(int64(pool.changesSinceReorg))
 	pool.changesSinceReorg = 0 // Reset change counter
 	pool.mu.Unlock()
+
+	// Notify that the mempool has been cleared
+	if reset != nil {
+		pool.mempoolClearFeed.Send(core.NewMempoolCleared{NewHead: reset.newHead})
+	}
 
 	// Notify subsystems for newly added transactions
 	for _, tx := range promoted {
@@ -1442,6 +1567,23 @@ func (pool *LegacyPool) reset(oldHead, newHead *types.Header) {
 	log.Debug("Reinjecting stale transactions", "count", len(reinject))
 	core.SenderCacher.Recover(pool.signer, reinject)
 	pool.addTxsLocked(reinject, false)
+}
+
+// resetHeadOnly retrieves the current state of the blockchain and sets the legacypool to validate
+// new queued transactions against this retrieved state.
+func (pool *LegacyPool) resetHeadOnly(oldHead, newHead *types.Header) {
+	// Initialize the internal state to the current head
+	if newHead == nil {
+		newHead = pool.chain.CurrentBlock() // Special case during testing
+	}
+	statedb, err := pool.chain.StateAt(newHead.Root)
+	if err != nil {
+		log.Error("Failed to reset txpool state", "err", err)
+		return
+	}
+	pool.currentHead.Store(newHead)
+	pool.currentState = statedb
+	pool.pendingNonces = newNoncer(statedb)
 }
 
 // promoteExecutables moves transactions that have become processable from the
@@ -1646,6 +1788,55 @@ func (pool *LegacyPool) truncateQueue() {
 	}
 }
 
+// clearPendingAndQueued removes invalid and processed transactions from the pools
+// it assumes that the pool lock is being held
+func (pool *LegacyPool) clearPendingAndQueued() {
+	// Iterate over all accounts and demote any non-executable transactions
+	addrsForWhichTxsRemoved := map[common.Address]bool{}
+
+	for addr, list := range pool.pending {
+		dropped, invalids := list.ClearList()
+
+		pendingGauge.Dec(int64(dropped.Len() + invalids.Len()))
+
+		for _, tx := range dropped {
+			pool.all.Remove(tx.Hash())
+		}
+		for _, tx := range invalids {
+			pool.all.Remove(tx.Hash())
+		}
+
+		if list.Empty() {
+			delete(pool.pending, addr)
+			delete(pool.beats, addr)
+
+			addrsForWhichTxsRemoved[addr] = true
+		}
+	}
+
+	for addr, list := range pool.queue {
+		dropped, invalids := list.ClearList()
+		queuedGauge.Dec(int64(dropped.Len() + invalids.Len()))
+
+		for _, tx := range dropped {
+			pool.all.Remove(tx.Hash())
+		}
+		for _, tx := range invalids {
+			pool.all.Remove(tx.Hash())
+		}
+
+		if list.Empty() {
+			delete(pool.queue, addr)
+
+			addrsForWhichTxsRemoved[addr] = true
+		}
+	}
+
+	for addr := range addrsForWhichTxsRemoved {
+		pool.reserve(addr, false)
+	}
+}
+
 // demoteUnexecutables removes invalid and processed transactions from the pools
 // executable/pending queue and any subsequent transactions that become unexecutable
 // are moved back into the future queue.
@@ -1656,9 +1847,9 @@ func (pool *LegacyPool) truncateQueue() {
 func (pool *LegacyPool) demoteUnexecutables() {
 	// Iterate over all accounts and demote any non-executable transactions
 	gasLimit := pool.currentHead.Load().GasLimit
+
 	for addr, list := range pool.pending {
 		nonce := pool.currentState.GetNonce(addr)
-
 		// Drop all transactions that are deemed too old (low nonce)
 		olds := list.Forward(nonce)
 		for _, tx := range olds {

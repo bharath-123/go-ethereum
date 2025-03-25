@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/urfave/cli/v2"
 	"os"
 	"slices"
 	"time"
@@ -36,7 +37,6 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie"
-	"github.com/urfave/cli/v2"
 )
 
 var (
@@ -543,7 +543,6 @@ func dumpState(ctx *cli.Context) error {
 
 	db := utils.MakeChainDatabase(ctx, stack, true)
 	defer db.Close()
-
 	conf, root, err := parseDumpConfig(ctx, db)
 	if err != nil {
 		return err

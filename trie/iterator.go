@@ -452,14 +452,12 @@ func (it *nodeIterator) findChild(n *fullNode, index int, ancestor common.Hash) 
 		if n.Children[index] != nil {
 			child = n.Children[index]
 			hash, _ := child.cache()
-
 			state = it.getFromPool()
 			state.hash = common.BytesToHash(hash)
 			state.node = child
 			state.parent = ancestor
 			state.index = -1
 			state.pathlen = len(path)
-
 			childPath = append(childPath, path...)
 			childPath = append(childPath, byte(index))
 			return child, state, childPath, index

@@ -20,6 +20,11 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/eth/catalyst"
+	"github.com/ethereum/go-ethereum/grpc/execution"
+	"github.com/ethereum/go-ethereum/grpc/optimistic"
+	"github.com/ethereum/go-ethereum/grpc/shared"
+	"github.com/urfave/cli/v2"
 	"os"
 	"reflect"
 	"runtime"
@@ -36,7 +41,6 @@ import (
 	"github.com/ethereum/go-ethereum/cmd/utils"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/eth/catalyst"
 	"github.com/ethereum/go-ethereum/eth/ethconfig"
 	"github.com/ethereum/go-ethereum/internal/flags"
 	"github.com/ethereum/go-ethereum/internal/version"
@@ -45,7 +49,6 @@ import (
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/naoina/toml"
-	"github.com/urfave/cli/v2"
 )
 
 var (
@@ -215,6 +218,21 @@ func makeFullNode(ctx *cli.Context) *node.Node {
 	if ctx.IsSet(utils.GraphQLEnabledFlag.Name) {
 		utils.RegisterGraphQLService(stack, backend, filterSystem, &cfg.Node)
 	}
+
+	// Configure gRPC if requested.
+	if ctx.IsSet(utils.GRPCEnabledFlag.Name) {
+		sharedService, err := shared.NewSharedServiceContainer(eth)
+		if err != nil {
+			utils.Fatalf("failed to create shared service container: %v", err)
+		}
+
+		serviceV1a2 := execution.NewExecutionServiceServerV1(sharedService)
+
+		auctionServiceV1Alpha1 := optimistic.NewAuctionServiceV1Alpha1(sharedService)
+
+		utils.RegisterGRPCServices(stack, serviceV1a2, auctionServiceV1Alpha1, auctionServiceV1Alpha1, &cfg.Node)
+	}
+
 	// Add the Ethereum Stats daemon if requested.
 	if cfg.Ethstats.URL != "" {
 		utils.RegisterEthStatsService(stack, backend, cfg.Ethstats.URL)

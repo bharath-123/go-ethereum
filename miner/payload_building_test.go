@@ -17,6 +17,7 @@
 package miner
 
 import (
+	"fmt"
 	"math/big"
 	"reflect"
 	"testing"
@@ -122,8 +123,8 @@ func newTestWorkerBackend(t *testing.T, chainConfig *params.ChainConfig, engine 
 	if err != nil {
 		t.Fatalf("core.NewBlockChain failed: %v", err)
 	}
-	pool := legacypool.New(testTxPoolConfig, chain)
-	txpool, _ := txpool.New(testTxPoolConfig.PriceLimit, chain, []txpool.SubPool{pool})
+	pool := legacypool.New(testTxPoolConfig, chain, true)
+	txpool, _ := txpool.New(testTxPoolConfig.PriceLimit, chain, []txpool.SubPool{pool}, true)
 
 	return &testWorkerBackend{
 		db:      db,
@@ -138,9 +139,195 @@ func (b *testWorkerBackend) TxPool() *txpool.TxPool       { return b.txPool }
 
 func newTestWorker(t *testing.T, chainConfig *params.ChainConfig, engine consensus.Engine, db ethdb.Database, blocks int) (*Miner, *testWorkerBackend) {
 	backend := newTestWorkerBackend(t, chainConfig, engine, db, blocks)
-	backend.txPool.Add(pendingTxs, true, true)
 	w := New(backend, testConfig, engine)
 	return w, backend
+}
+
+func TestBuildPayloadNotEnoughGas(t *testing.T) {
+	var (
+		db        = rawdb.NewMemoryDatabase()
+		recipient = common.HexToAddress("0xdeadbeef")
+	)
+	w, b := newTestWorker(t, params.TestChainConfig, ethash.NewFaker(), db, 0)
+
+	timestamp := uint64(time.Now().Unix())
+
+	txGasPrice := big.NewInt(10 * params.InitialBaseFee)
+
+	gasLimit := b.chain.GasLimit()
+
+	contains := func(transactions types.Transactions, tx *types.Transaction) bool {
+		for _, t := range transactions {
+			if t.Hash() == tx.Hash() {
+				return true
+			}
+		}
+		return false
+	}
+
+	txsToAdd := types.Transactions{}
+	nonceCounter := uint64(0)
+	// keep adding txs until the gas pool goes below 21000 and then add 5 more txs. these 5 txs have to be
+	// excluded from the block
+	for {
+		tx := types.NewTransaction(b.txPool.Nonce(testBankAddress)+nonceCounter, testUserAddress, big.NewInt(1000), params.TxGas, txGasPrice, nil)
+		txsToAdd = append(txsToAdd, tx)
+		gasLimit -= params.TxGas
+		nonceCounter += 1
+
+		if gasLimit < 21000 {
+			// add 5 more such txs which have to be excluded from the block
+			for i := 0; i < 5; i++ {
+				tx := types.NewTransaction(b.txPool.Nonce(testBankAddress)+nonceCounter, testUserAddress, big.NewInt(1000), params.TxGas, txGasPrice, nil)
+				txsToAdd = append(txsToAdd, tx)
+				nonceCounter += 1
+			}
+			break
+		}
+	}
+
+	signedTxs := types.Transactions{}
+	for _, tx := range txsToAdd {
+		signedTx, err := types.SignTx(tx, types.HomesteadSigner{}, testBankKey)
+		if err != nil {
+			t.Fatalf("Failed to sign tx %v", err)
+		}
+		signedTxs = append(signedTxs, signedTx)
+	}
+
+	// set the astria ordered txsToBuildPayload
+	b.TxPool().SetAstriaOrdered(signedTxs)
+	astriaTxs := b.TxPool().AstriaOrdered()
+
+	if astriaTxs.Len() != len(txsToAdd) {
+		t.Fatalf("Unexpected number of astria ordered transactions: %d", astriaTxs.Len())
+	}
+
+	txs := types.TxDifference(*astriaTxs, signedTxs)
+	if txs.Len() != 0 {
+		t.Fatalf("Unexpected transactions in astria ordered transactions: %v", txs)
+	}
+
+	args := &BuildPayloadArgs{
+		Parent:                b.chain.CurrentBlock().Hash(),
+		Timestamp:             timestamp,
+		Random:                common.Hash{},
+		FeeRecipient:          recipient,
+		IsOptimisticExecution: false,
+	}
+
+	payload, err := w.buildPayload(args, false)
+	if err != nil {
+		t.Fatalf("Failed to build payload %v", err)
+	}
+	full := payload.ResolveFull()
+	astriaExcludedFromBlock := b.TxPool().AstriaExcludedFromBlock()
+
+	// ensure that the transactions not included in the block are included in astriaExcludedFromBlock
+	excludedTxsCount := len(txsToAdd) - len(full.ExecutionPayload.Transactions)
+	if astriaExcludedFromBlock.Len() != excludedTxsCount {
+		t.Fatalf("Unexpected number of transactions in astria excluded from block: %d", astriaExcludedFromBlock.Len())
+	}
+
+	// ensure that only the excluded txs are in the list
+	if astriaExcludedFromBlock.Len() > 0 {
+		for _, binaryTx := range full.ExecutionPayload.Transactions {
+			tx := new(types.Transaction)
+			err = tx.UnmarshalBinary(binaryTx)
+			if err != nil {
+				t.Fatalf("Failed to unmarshal binary transaction %v", err)
+			}
+			if contains(*astriaExcludedFromBlock, tx) {
+				t.Fatalf("Transaction %v should not be in the astria excluded from block list", tx)
+			}
+		}
+	}
+}
+
+func TestBuildPayloadTimeout(t *testing.T) {
+	var (
+		db        = rawdb.NewMemoryDatabase()
+		recipient = common.HexToAddress("0xdeadbeef")
+	)
+	w, b := newTestWorker(t, params.TestChainConfig, ethash.NewFaker(), db, 0)
+
+	timestamp := uint64(time.Now().Unix())
+
+	contains := func(transactions types.Transactions, tx *types.Transaction) bool {
+		for _, t := range transactions {
+			if t.Hash() == tx.Hash() {
+				return true
+			}
+		}
+		return false
+	}
+
+	txGasPrice := big.NewInt(10 * params.InitialBaseFee)
+
+	txsToAdd := types.Transactions{
+		types.NewTransaction(b.txPool.Nonce(testBankAddress), testUserAddress, big.NewInt(1000), params.TxGas, txGasPrice, nil),
+		types.NewTransaction(b.txPool.Nonce(testBankAddress)+1, testUserAddress, big.NewInt(2000), params.TxGas, txGasPrice, nil),
+		types.NewTransaction(b.txPool.Nonce(testBankAddress)+2, testUserAddress, big.NewInt(2000), params.TxGas, txGasPrice, nil),
+		types.NewTransaction(b.txPool.Nonce(testBankAddress)+3, testUserAddress, big.NewInt(2000), params.TxGas, txGasPrice, nil),
+		types.NewTransaction(b.txPool.Nonce(testBankAddress)+4, testUserAddress, big.NewInt(2000), params.TxGas, txGasPrice, nil),
+	}
+	signedTxs := types.Transactions{}
+	for _, tx := range txsToAdd {
+		signedTx, err := types.SignTx(tx, types.HomesteadSigner{}, testBankKey)
+		if err != nil {
+			t.Fatalf("Failed to sign tx %v", err)
+		}
+		signedTxs = append(signedTxs, signedTx)
+	}
+
+	// set the astria ordered txsToBuildPayload
+	b.TxPool().SetAstriaOrdered(signedTxs)
+	astriaTxs := b.TxPool().AstriaOrdered()
+
+	if astriaTxs.Len() != len(txsToAdd) {
+		t.Fatalf("Unexpected number of astria ordered transactions: %d", astriaTxs.Len())
+	}
+
+	txs := types.TxDifference(*astriaTxs, signedTxs)
+	if txs.Len() != 0 {
+		t.Fatalf("Unexpected transactions in astria ordered transactions: %v", txs)
+	}
+
+	// a very small recommit to reliably timeout the payload building
+	w.config.Recommit = time.Nanosecond
+	args := &BuildPayloadArgs{
+		Parent:       b.chain.CurrentBlock().Hash(),
+		Timestamp:    timestamp,
+		Random:       common.Hash{},
+		FeeRecipient: recipient,
+	}
+
+	payload, err := w.buildPayload(args, false)
+	if err != nil {
+		t.Fatalf("Failed to build payload %v", err)
+	}
+	full := payload.ResolveFull()
+	astriaExcludedFromBlock := b.TxPool().AstriaExcludedFromBlock()
+
+	// ensure that the transactions not included in the block are included in astriaExcludedFromBlock
+	excludedTxsCount := len(txsToAdd) - len(full.ExecutionPayload.Transactions)
+	if astriaExcludedFromBlock.Len() != excludedTxsCount {
+		t.Fatalf("Unexpected number of transactions in astria excluded from block: %d", astriaExcludedFromBlock.Len())
+	}
+
+	// ensure that only the excluded txs are in the list
+	if astriaExcludedFromBlock.Len() > 0 {
+		for _, binaryTx := range full.ExecutionPayload.Transactions {
+			tx := new(types.Transaction)
+			err = tx.UnmarshalBinary(binaryTx)
+			if err != nil {
+				t.Fatalf("Failed to unmarshal binary transaction %v", err)
+			}
+			if contains(*astriaExcludedFromBlock, tx) {
+				t.Fatalf("Transaction %v should not be in the astria excluded from block list", tx)
+			}
+		}
+	}
 }
 
 func TestBuildPayload(t *testing.T) {
@@ -151,16 +338,7 @@ func TestBuildPayload(t *testing.T) {
 	w, b := newTestWorker(t, params.TestChainConfig, ethash.NewFaker(), db, 0)
 
 	timestamp := uint64(time.Now().Unix())
-	args := &BuildPayloadArgs{
-		Parent:       b.chain.CurrentBlock().Hash(),
-		Timestamp:    timestamp,
-		Random:       common.Hash{},
-		FeeRecipient: recipient,
-	}
-	payload, err := w.buildPayload(args, false)
-	if err != nil {
-		t.Fatalf("Failed to build payload %v", err)
-	}
+
 	verify := func(outer *engine.ExecutionPayloadEnvelope, txs int) {
 		payload := outer.ExecutionPayload
 		if payload.ParentHash != b.chain.CurrentBlock().Hash() {
@@ -176,21 +354,145 @@ func TestBuildPayload(t *testing.T) {
 			t.Fatal("Unexpected fee recipient")
 		}
 		if len(payload.Transactions) != txs {
+			fmt.Printf("payload txs len is %d\n", len(payload.Transactions))
+			fmt.Printf("actual txs len is %d\n", txs)
+
 			t.Fatal("Unexpected transaction set")
 		}
 	}
-	empty := payload.ResolveEmpty()
-	verify(empty, 0)
 
-	full := payload.ResolveFull()
-	verify(full, len(pendingTxs))
+	txGasPrice := big.NewInt(10 * params.InitialBaseFee)
 
-	// Ensure resolve can be called multiple times and the
-	// result should be unchanged
-	dataOne := payload.Resolve()
-	dataTwo := payload.Resolve()
-	if !reflect.DeepEqual(dataOne, dataTwo) {
-		t.Fatal("Unexpected payload data")
+	tests := []struct {
+		name                 string
+		txsToBuildPayload    types.Transactions
+		expectedTxsInPayload types.Transactions
+		txsExcludedFromBlock types.Transactions
+	}{
+		{
+			name:                 "empty",
+			txsToBuildPayload:    types.Transactions{},
+			expectedTxsInPayload: types.Transactions{},
+			txsExcludedFromBlock: types.Transactions{},
+		},
+		{
+			name: "transactions with gas enough to fit into a single block",
+			txsToBuildPayload: types.Transactions{
+				types.NewTransaction(b.txPool.Nonce(testBankAddress), testUserAddress, big.NewInt(1000), params.TxGas, txGasPrice, nil),
+				types.NewTransaction(b.txPool.Nonce(testBankAddress)+1, testUserAddress, big.NewInt(2000), params.TxGas, txGasPrice, nil),
+			},
+			expectedTxsInPayload: types.Transactions{
+				types.NewTransaction(b.txPool.Nonce(testBankAddress), testUserAddress, big.NewInt(1000), params.TxGas, txGasPrice, nil),
+				types.NewTransaction(b.txPool.Nonce(testBankAddress)+1, testUserAddress, big.NewInt(2000), params.TxGas, txGasPrice, nil),
+			},
+			txsExcludedFromBlock: types.Transactions{},
+		},
+		{
+			name: "transactions with gas which doesn't fit in a single block",
+			txsToBuildPayload: types.Transactions{
+				types.NewTransaction(b.txPool.Nonce(testBankAddress), testUserAddress, big.NewInt(1000), b.BlockChain().GasLimit()-10000, txGasPrice, nil),
+				types.NewTransaction(b.txPool.Nonce(testBankAddress)+1, testUserAddress, big.NewInt(1000), b.BlockChain().GasLimit()-10000, txGasPrice, nil),
+			},
+			expectedTxsInPayload: types.Transactions{
+				types.NewTransaction(b.txPool.Nonce(testBankAddress), testUserAddress, big.NewInt(1000), b.BlockChain().GasLimit()-10000, txGasPrice, nil),
+			},
+			txsExcludedFromBlock: types.Transactions{
+				types.NewTransaction(b.txPool.Nonce(testBankAddress)+1, testUserAddress, big.NewInt(1000), b.BlockChain().GasLimit()-10000, txGasPrice, nil),
+			},
+		},
+		{
+			name: "transactions with nonce too high",
+			txsToBuildPayload: types.Transactions{
+				types.NewTransaction(b.txPool.Nonce(testBankAddress), testUserAddress, big.NewInt(1000), params.TxGas, txGasPrice, nil),
+				types.NewTransaction(b.txPool.Nonce(testBankAddress)+4, testUserAddress, big.NewInt(2000), params.TxGas, txGasPrice, nil),
+			},
+			expectedTxsInPayload: types.Transactions{
+				types.NewTransaction(b.txPool.Nonce(testBankAddress), testUserAddress, big.NewInt(1000), params.TxGas, txGasPrice, nil),
+			},
+			txsExcludedFromBlock: types.Transactions{
+				types.NewTransaction(b.txPool.Nonce(testBankAddress)+4, testUserAddress, big.NewInt(2000), params.TxGas, txGasPrice, nil),
+			},
+		},
+		{
+			name: "transactions with nonce too low",
+			txsToBuildPayload: types.Transactions{
+				types.NewTransaction(b.txPool.Nonce(testBankAddress), testUserAddress, big.NewInt(1000), params.TxGas, txGasPrice, nil),
+				types.NewTransaction(b.txPool.Nonce(testBankAddress)-1, testUserAddress, big.NewInt(2000), params.TxGas, txGasPrice, nil),
+			},
+			expectedTxsInPayload: types.Transactions{
+				types.NewTransaction(b.txPool.Nonce(testBankAddress), testUserAddress, big.NewInt(1000), params.TxGas, txGasPrice, nil),
+			},
+			txsExcludedFromBlock: types.Transactions{
+				types.NewTransaction(b.txPool.Nonce(testBankAddress)-1, testUserAddress, big.NewInt(2000), params.TxGas, txGasPrice, nil),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			signedTxs := types.Transactions{}
+			signedInvalidTxs := types.Transactions{}
+
+			for _, tx := range tt.txsToBuildPayload {
+				signedTx, err := types.SignTx(tx, types.HomesteadSigner{}, testBankKey)
+				if err != nil {
+					t.Fatalf("Failed to sign tx %v", err)
+				}
+				signedTxs = append(signedTxs, signedTx)
+			}
+
+			for _, tx := range tt.txsExcludedFromBlock {
+				signedTx, err := types.SignTx(tx, types.HomesteadSigner{}, testBankKey)
+				if err != nil {
+					t.Fatalf("Failed to sign tx %v", err)
+				}
+				signedInvalidTxs = append(signedInvalidTxs, signedTx)
+			}
+
+			// set the astria ordered txsToBuildPayload
+			b.TxPool().SetAstriaOrdered(signedTxs)
+			astriaTxs := b.TxPool().AstriaOrdered()
+
+			if astriaTxs.Len() != len(tt.txsToBuildPayload) {
+				t.Fatalf("Unexpected number of astria ordered transactions: %d", astriaTxs.Len())
+			}
+
+			txs := types.TxDifference(*astriaTxs, signedTxs)
+			if txs.Len() != 0 {
+				t.Fatalf("Unexpected transactions in astria ordered transactions: %v", txs)
+			}
+
+			args := &BuildPayloadArgs{
+				Parent:       b.chain.CurrentBlock().Hash(),
+				Timestamp:    timestamp,
+				Random:       common.Hash{},
+				FeeRecipient: recipient,
+			}
+
+			payload, err := w.buildPayload(args, false)
+			if err != nil {
+				t.Fatalf("Failed to build payload %v", err)
+			}
+			full := payload.ResolveFull()
+			verify(full, len(tt.expectedTxsInPayload))
+
+			// Ensure resolve can be called multiple times and the
+			// result should be unchanged
+			dataOne := payload.Resolve()
+			dataTwo := payload.Resolve()
+			if !reflect.DeepEqual(dataOne, dataTwo) {
+				t.Fatal("Unexpected payload data")
+			}
+
+			// Ensure invalid transactions are stored
+			if len(tt.txsExcludedFromBlock) > 0 {
+				invalidTxs := b.TxPool().AstriaExcludedFromBlock()
+				txDifference := types.TxDifference(*invalidTxs, signedInvalidTxs)
+				if txDifference.Len() != 0 {
+					t.Fatalf("Unexpected transactions in transactions excluded from block list: %v", txDifference)
+				}
+			}
+		})
 	}
 }
 

@@ -63,6 +63,18 @@ func (bc *BlockChain) CurrentSafeBlock() *types.Header {
 	return bc.currentSafeBlock.Load()
 }
 
+// CurrentOptimisticBlock retrieves the current optimistic block of the canonical
+// chain. The block is retrieved from the blockchain's internal cache.
+func (bc *BlockChain) CurrentOptimisticBlock() *types.Header {
+	return bc.currentOptimisticBlock.Load()
+}
+
+// CurrentBaseCelestiaHeight retrieves the current base celestia height of the
+// canonical chain. The height is retrieved from the blockchain's internal cache.
+func (bc *BlockChain) CurrentBaseCelestiaHeight() uint64 {
+	return bc.currentBaseCelestiaHeight.Load()
+}
+
 // HasHeader checks if a block header is present in the database or not, caching
 // it if present.
 func (bc *BlockChain) HasHeader(hash common.Hash, number uint64) bool {
@@ -428,6 +440,11 @@ func (bc *BlockChain) SubscribeChainEvent(ch chan<- ChainEvent) event.Subscripti
 // SubscribeChainHeadEvent registers a subscription of ChainHeadEvent.
 func (bc *BlockChain) SubscribeChainHeadEvent(ch chan<- ChainHeadEvent) event.Subscription {
 	return bc.scope.Track(bc.chainHeadFeed.Subscribe(ch))
+}
+
+// SubscribeChainOptimisticHeadEvent registers a subscription of ChainOptimisticHeadEvent.
+func (bc *BlockChain) SubscribeChainOptimisticHeadEvent(ch chan<- ChainOptimisticHeadEvent) event.Subscription {
+	return bc.scope.Track(bc.chainOptimisticHeadFeed.Subscribe(ch))
 }
 
 // SubscribeLogsEvent registers a subscription of []*types.Log.

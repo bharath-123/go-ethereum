@@ -56,11 +56,12 @@ import (
 )
 
 var (
-	headBlockGauge          = metrics.NewRegisteredGauge("chain/head/block", nil)
-	headHeaderGauge         = metrics.NewRegisteredGauge("chain/head/header", nil)
-	headFastBlockGauge      = metrics.NewRegisteredGauge("chain/head/receipt", nil)
-	headFinalizedBlockGauge = metrics.NewRegisteredGauge("chain/head/finalized", nil)
-	headSafeBlockGauge      = metrics.NewRegisteredGauge("chain/head/safe", nil)
+	headBlockGauge           = metrics.NewRegisteredGauge("chain/head/block", nil)
+	headHeaderGauge          = metrics.NewRegisteredGauge("chain/head/header", nil)
+	headFastBlockGauge       = metrics.NewRegisteredGauge("chain/head/receipt", nil)
+	headFinalizedBlockGauge  = metrics.NewRegisteredGauge("chain/head/finalized", nil)
+	headSafeBlockGauge       = metrics.NewRegisteredGauge("chain/head/safe", nil)
+	headOptimisticBlockGauge = metrics.NewRegisteredGauge("chain/head/optimistic", nil)
 
 	chainInfoGauge = metrics.NewRegisteredGaugeInfo("chain/info", nil)
 
@@ -222,23 +223,28 @@ type BlockChain struct {
 	statedb       *state.CachingDB                 // State database to reuse between imports (contains state cache)
 	txIndexer     *txIndexer                       // Transaction indexer, might be nil if not enabled
 
-	hc            *HeaderChain
-	rmLogsFeed    event.Feed
-	chainFeed     event.Feed
-	chainHeadFeed event.Feed
-	logsFeed      event.Feed
-	blockProcFeed event.Feed
-	scope         event.SubscriptionScope
-	genesisBlock  *types.Block
+	hc                      *HeaderChain
+	rmLogsFeed              event.Feed
+	chainFeed               event.Feed
+	chainSideFeed           event.Feed
+	chainHeadFeed           event.Feed
+	chainOptimisticHeadFeed event.Feed
+	logsFeed                event.Feed
+	blockProcFeed           event.Feed
+	scope                   event.SubscriptionScope
+	genesisBlock            *types.Block
 
 	// This mutex synchronizes chain write operations.
 	// Readers don't need to take it, they can just read the database.
 	chainmu *syncx.ClosableMutex
 
-	currentBlock      atomic.Pointer[types.Header] // Current head of the chain
-	currentSnapBlock  atomic.Pointer[types.Header] // Current head of snap-sync
-	currentFinalBlock atomic.Pointer[types.Header] // Latest (consensus) finalized block
-	currentSafeBlock  atomic.Pointer[types.Header] // Latest (consensus) safe block
+	currentBlock           atomic.Pointer[types.Header] // Current head of the chain
+	currentSnapBlock       atomic.Pointer[types.Header] // Current head of snap-sync
+	currentFinalBlock      atomic.Pointer[types.Header] // Latest (consensus) finalized block
+	currentSafeBlock       atomic.Pointer[types.Header] // Latest (consensus) safe block
+	currentOptimisticBlock atomic.Pointer[types.Header] // Latest optimistic block
+
+	currentBaseCelestiaHeight atomic.Uint64 // Latest finalized block height on Celestia
 
 	bodyCache     *lru.Cache[common.Hash, *types.Body]
 	bodyRLPCache  *lru.Cache[common.Hash, rlp.RawValue]
@@ -319,10 +325,12 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, genesis *Genesis
 		return nil, ErrNoGenesis
 	}
 
-	bc.currentBlock.Store(nil)
 	bc.currentSnapBlock.Store(nil)
-	bc.currentFinalBlock.Store(nil)
-	bc.currentSafeBlock.Store(nil)
+	bc.currentBlock.Store(bc.genesisBlock.Header())
+	bc.currentFinalBlock.Store(bc.genesisBlock.Header())
+	bc.currentSafeBlock.Store(bc.genesisBlock.Header())
+	bc.currentOptimisticBlock.Store(bc.genesisBlock.Header())
+	bc.currentBaseCelestiaHeight.Store(bc.Config().AstriaCelestiaInitialHeight)
 
 	// Update chain info data metrics
 	chainInfoGauge.Update(metrics.GaugeInfoValue{"chain_id": bc.chainConfig.ChainID.String()})
@@ -533,9 +541,15 @@ func (bc *BlockChain) loadLastState() error {
 			bc.currentFinalBlock.Store(block.Header())
 			headFinalizedBlockGauge.Update(int64(block.NumberU64()))
 			bc.currentSafeBlock.Store(block.Header())
+			bc.currentOptimisticBlock.Store(block.Header())
 			headSafeBlockGauge.Update(int64(block.NumberU64()))
 		}
 	}
+
+	if height := rawdb.ReadBaseCelestiaHeight(bc.db); height != 0 {
+		bc.currentBaseCelestiaHeight.Store(height)
+	}
+
 	// Issue a status log for the user
 	var (
 		currentSnapBlock  = bc.CurrentSnapBlock()
@@ -544,6 +558,7 @@ func (bc *BlockChain) loadLastState() error {
 		headerTd = bc.GetTd(headHeader.Hash(), headHeader.Number.Uint64())
 		blockTd  = bc.GetTd(headBlock.Hash(), headBlock.NumberU64())
 	)
+	log.Info("Loaded celestia base height", "height", bc.currentBaseCelestiaHeight.Load())
 	if headHeader.Hash() != headBlock.Hash() {
 		log.Info("Loaded most recent local header", "number", headHeader.Number, "hash", headHeader.Hash(), "td", headerTd, "age", common.PrettyAge(time.Unix(int64(headHeader.Time), 0)))
 	}
@@ -615,6 +630,13 @@ func (bc *BlockChain) SetFinalized(header *types.Header) {
 	}
 }
 
+// SetCelestiaFinalized sets the finalized block and the lowest Celestia height to find next finalized at.
+func (bc *BlockChain) SetCelestiaFinalized(header *types.Header, celHeight uint64) {
+	rawdb.WriteBaseCelestiaHeight(bc.db, celHeight)
+	bc.currentBaseCelestiaHeight.Store(celHeight)
+	bc.SetFinalized(header)
+}
+
 // SetSafe sets the safe block.
 func (bc *BlockChain) SetSafe(header *types.Header) {
 	bc.currentSafeBlock.Store(header)
@@ -623,6 +645,19 @@ func (bc *BlockChain) SetSafe(header *types.Header) {
 	} else {
 		headSafeBlockGauge.Update(0)
 	}
+}
+
+// SetOptimistic sets the optimistic block.
+func (bc *BlockChain) SetOptimistic(block *types.Block) {
+	header := block.Header()
+	bc.currentOptimisticBlock.Store(header)
+	if header != nil {
+		headOptimisticBlockGauge.Update(int64(header.Number.Uint64()))
+	} else {
+		headOptimisticBlockGauge.Update(0)
+	}
+
+	bc.chainOptimisticHeadFeed.Send(ChainOptimisticHeadEvent{Block: block})
 }
 
 // rewindHashHead implements the logic of rewindHead in the context of hash scheme.
@@ -1759,6 +1794,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, setHead bool, makeWitness 
 					Safe:      bc.CurrentSafeBlock(),
 				})
 			}
+
 			// We can assume that logs are empty here, since the only way for consecutive
 			// Clique blocks to have the same state is if there are no transactions.
 			lastCanon = block

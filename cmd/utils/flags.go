@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/urfave/cli/v2"
 	"math"
 	"math/big"
 	"net"
@@ -35,6 +36,9 @@ import (
 	"strings"
 	"time"
 
+	auctionGrpc "buf.build/gen/go/astria/execution-apis/grpc/go/astria/auction/v1alpha1/auctionv1alpha1grpc"
+	astriaGrpc "buf.build/gen/go/astria/execution-apis/grpc/go/astria/execution/v1/executionv1grpc"
+	optimisticExecutionGrpc "buf.build/gen/go/astria/execution-apis/grpc/go/astria/optimistic_execution/v1alpha1/optimistic_executionv1alpha1grpc"
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	bparams "github.com/ethereum/go-ethereum/beacon/params"
@@ -78,7 +82,6 @@ import (
 	"github.com/ethereum/go-ethereum/triedb/pathdb"
 	pcsclite "github.com/gballet/go-libpcsclite"
 	gopsutil "github.com/shirou/gopsutil/mem"
-	"github.com/urfave/cli/v2"
 )
 
 // These are all the command line flags we support.
@@ -723,6 +726,36 @@ var (
 		Value:    node.DefaultConfig.BatchResponseMaxSize,
 		Category: flags.APICategory,
 	}
+	EnablePersonal = &cli.BoolFlag{
+		Name:     "rpc.enabledeprecatedpersonal",
+		Usage:    "Enables the (deprecated) personal namespace",
+		Category: flags.APICategory,
+	}
+	// grpc
+	GRPCEnabledFlag = &cli.BoolFlag{
+		Name:     "grpc",
+		Usage:    "Enable the gRPC server",
+		Category: flags.APICategory,
+	}
+	GRPCHostFlag = &cli.StringFlag{
+		Name:     "grpc.addr",
+		Usage:    "gRPC server listening interface",
+		Value:    node.DefaultGRPCHost,
+		Category: flags.APICategory,
+	}
+	GRPCPortFlag = &cli.IntFlag{
+		Name:     "grpc.port",
+		Usage:    "gRPC server listening port",
+		Value:    node.DefaultGRPCPort,
+		Category: flags.APICategory,
+	}
+
+	// auctioneer
+	AuctioneerEnabledFlag = &cli.BoolFlag{
+		Name:     "auctioneer",
+		Usage:    "Enable the auctioneer server",
+		Category: flags.MinerCategory,
+	}
 
 	// Network Settings
 	MaxPeersFlag = &cli.IntFlag{
@@ -1156,6 +1189,19 @@ func setHTTP(ctx *cli.Context, cfg *node.Config) {
 	}
 }
 
+// setGRPC creates the gRPC RPC listener interface string from the set command
+// line flags, returning empty if the gRPC endpoint is disabled.
+func setGRPC(ctx *cli.Context, cfg *node.Config) {
+	if ctx.Bool(GRPCEnabledFlag.Name) {
+		if ctx.IsSet(GRPCHostFlag.Name) {
+			cfg.GRPCHost = ctx.String(GRPCHostFlag.Name)
+		}
+		if ctx.IsSet(GRPCPortFlag.Name) {
+			cfg.GRPCPort = ctx.Int(GRPCPortFlag.Name)
+		}
+	}
+}
+
 // setGraphQL creates the GraphQL listener interface string from the set
 // command line flags, returning empty if the GraphQL endpoint is disabled.
 func setGraphQL(ctx *cli.Context, cfg *node.Config) {
@@ -1324,11 +1370,16 @@ func SetNodeConfig(ctx *cli.Context, cfg *node.Config) {
 	SetP2PConfig(ctx, &cfg.P2P)
 	setIPC(ctx, cfg)
 	setHTTP(ctx, cfg)
+	setGRPC(ctx, cfg)
 	setGraphQL(ctx, cfg)
 	setWS(ctx, cfg)
 	setNodeUserIdent(ctx, cfg)
 	SetDataDir(ctx, cfg)
 	setSmartCard(ctx, cfg)
+
+	if ctx.IsSet(AuctioneerEnabledFlag.Name) {
+		cfg.EnableAuctioneer = ctx.Bool(AuctioneerEnabledFlag.Name)
+	}
 
 	if ctx.IsSet(JWTSecretFlag.Name) {
 		cfg.JWTSecret = ctx.String(JWTSecretFlag.Name)
@@ -1951,15 +2002,25 @@ func RegisterGraphQLService(stack *node.Node, backend ethapi.Backend, filterSyst
 	}
 }
 
+// RegisterGRPCServices adds the gRPC API to the node.
+// It was done this way so that our grpc execution server can access the ethapi.Backend
+func RegisterGRPCServices(stack *node.Node, execServ astriaGrpc.ExecutionServiceServer, optimisticExecutionServ optimisticExecutionGrpc.OptimisticExecutionServiceServer, auctionServiceServer auctionGrpc.AuctionServiceServer, cfg *node.Config) {
+	if err := node.NewGRPCServerHandler(stack, execServ, optimisticExecutionServ, auctionServiceServer, cfg); err != nil {
+		Fatalf("Failed to register the gRPC service: %v", err)
+	}
+}
+
 // RegisterFilterAPI adds the eth log filtering RPC API to the node.
 func RegisterFilterAPI(stack *node.Node, backend ethapi.Backend, ethcfg *ethconfig.Config) *filters.FilterSystem {
 	filterSystem := filters.NewFilterSystem(backend, filters.Config{
 		LogCacheSize: ethcfg.FilterLogCacheSize,
 	})
-	stack.RegisterAPIs([]rpc.API{{
-		Namespace: "eth",
-		Service:   filters.NewFilterAPI(filterSystem),
-	}})
+	if !stack.AuctioneerEnabled() {
+		stack.RegisterAPIs([]rpc.API{{
+			Namespace: "eth",
+			Service:   filters.NewFilterAPI(filterSystem),
+		}})
+	}
 	return filterSystem
 }
 

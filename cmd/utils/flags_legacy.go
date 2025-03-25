@@ -18,10 +18,10 @@ package utils
 
 import (
 	"fmt"
+	"github.com/urfave/cli/v2"
 
 	"github.com/ethereum/go-ethereum/eth/ethconfig"
 	"github.com/ethereum/go-ethereum/internal/flags"
-	"github.com/urfave/cli/v2"
 )
 
 var ShowDeprecated = &cli.Command{
@@ -151,12 +151,6 @@ var (
 	MetricsEnabledExpensiveFlag = &cli.BoolFlag{
 		Name:     "metrics.expensive",
 		Usage:    "Enable expensive metrics collection and reporting (deprecated)",
-		Category: flags.DeprecatedCategory,
-	}
-	// Deprecated Oct 2024
-	EnablePersonal = &cli.BoolFlag{
-		Name:     "rpc.enabledeprecatedpersonal",
-		Usage:    "This used to enable the 'personal' namespace.",
 		Category: flags.DeprecatedCategory,
 	}
 	UnlockedAccountFlag = &cli.StringFlag{

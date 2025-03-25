@@ -55,7 +55,6 @@ func TestEncode(t *testing.T) {
 		tt := test
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-
 			var (
 				b = bytes.NewBuffer(nil)
 				w = NewWriter(b)

@@ -34,6 +34,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/holiman/uint256"
+	"github.com/stretchr/testify/require"
+
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
@@ -56,8 +59,6 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethereum/go-ethereum/triedb"
-	"github.com/holiman/uint256"
-	"github.com/stretchr/testify/require"
 )
 
 func testTransactionMarshal(t *testing.T, tests []txData, config *params.ChainConfig) {
@@ -106,16 +107,15 @@ func TestTransaction_RoundTripRpcJSON(t *testing.T) {
 	testTransactionMarshal(t, tests, config)
 }
 
-func TestTransactionBlobTx(t *testing.T) {
-	t.Parallel()
-
-	config := *params.TestChainConfig
-	config.ShanghaiTime = new(uint64)
-	config.CancunTime = new(uint64)
-	tests := allBlobTxs(common.Address{0xde, 0xad}, &config)
-
-	testTransactionMarshal(t, tests, &config)
-}
+// Blob submission disabled
+//func TestTransactionBlobTx(t *testing.T) {
+//	config := *params.TestChainConfig
+//	config.ShanghaiTime = new(uint64)
+//	config.CancunTime = new(uint64)
+//	tests := allBlobTxs(common.Address{0xde, 0xad}, &config)
+//
+//	testTransactionMarshal(t, tests, &config)
+//}
 
 type txData struct {
 	Tx   types.TxData
@@ -476,6 +476,11 @@ func (b testBackend) SuggestGasTipCap(ctx context.Context) (*big.Int, error) {
 }
 func (b testBackend) FeeHistory(ctx context.Context, blockCount uint64, lastBlock rpc.BlockNumber, rewardPercentiles []float64) (*big.Int, [][]*big.Int, []*big.Int, []float64, []*big.Int, []float64, error) {
 	return nil, nil, nil, nil, nil, nil, nil
+}
+
+func (b testBackend) AuctioneerEnabled() bool {
+	// TODO - it would be good to be able to set this value for tests for the future as we build more complex functionality for auctioneer.
+	return false
 }
 func (b testBackend) BlobBaseFee(ctx context.Context) *big.Int { return new(big.Int) }
 func (b testBackend) ChainDb() ethdb.Database                  { return b.db }
@@ -3095,20 +3100,6 @@ func setupReceiptBackend(t *testing.T, genBlocks int) (*testBackend, []common.Ha
 				StorageKeys: []common.Hash{{0}},
 			}}
 			tx, err = types.SignTx(types.NewTx(&types.AccessListTx{Nonce: uint64(i), To: nil, Gas: 58100, GasPrice: b.BaseFee(), Data: common.FromHex("0x60806040"), AccessList: accessList}), signer, acc1Key)
-		case 5:
-			// blob tx
-			fee := big.NewInt(500)
-			fee.Add(fee, b.BaseFee())
-			tx, err = types.SignTx(types.NewTx(&types.BlobTx{
-				Nonce:      uint64(i),
-				GasTipCap:  uint256.NewInt(1),
-				GasFeeCap:  uint256.MustFromBig(fee),
-				Gas:        params.TxGas,
-				To:         acc2Addr,
-				BlobFeeCap: uint256.NewInt(1),
-				BlobHashes: []common.Hash{{1}},
-				Value:      new(uint256.Int),
-			}), signer, acc1Key)
 		}
 		if err != nil {
 			t.Errorf("failed to sign tx: %v", err)

@@ -119,16 +119,16 @@ func flatCallTracerTestRunner(tracerName string, filename string, dirPath string
 		t.Logf("test %s failed", filename)
 
 		// uncomment this for easier debugging
-		// have, _ := json.MarshalIndent(ret, "", " ")
-		// want, _ := json.MarshalIndent(test.Result, "", " ")
-		// t.Logf("trace mismatch: \nhave %+v\nwant %+v", string(have), string(want))
+		have, _ := json.MarshalIndent(ret, "", " ")
+		want, _ := json.MarshalIndent(test.Result, "", " ")
+		t.Logf("trace mismatch: \nhave %+v\nwant %+v", string(have), string(want))
 
 		// uncomment this for harder debugging <3 meowsbits
-		// lines := deep.Equal(ret, test.Result)
-		// for _, l := range lines {
-		// 	t.Logf("%s", l)
-		// 	t.FailNow()
-		// }
+		//lines := deep.Equal(ret, test.Result)
+		//for _, l := range lines {
+		//	t.Logf("%s", l)
+		//	t.FailNow()
+		//}
 
 		t.Fatalf("trace mismatch: \nhave %+v\nwant %+v", ret, test.Result)
 	}

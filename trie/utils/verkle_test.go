@@ -18,9 +18,9 @@ package utils
 
 import (
 	"bytes"
+	"github.com/ethereum/go-verkle"
 	"testing"
 
-	"github.com/ethereum/go-verkle"
 	"github.com/holiman/uint256"
 )
 

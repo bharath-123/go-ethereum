@@ -343,6 +343,13 @@ func New(config Config, chain BlockChain) *BlobPool {
 	}
 }
 
+func (p *BlobPool) SetAstriaOrdered(types.Transactions)             {}
+func (p *BlobPool) ClearAstriaOrdered()                             {}
+func (p *BlobPool) AddToAstriaExcludedFromBlock(*types.Transaction) {}
+func (p *BlobPool) AstriaExcludedFromBlock() *types.Transactions    { return &types.Transactions{} }
+func (p *BlobPool) AstriaOrdered() *types.Transactions              { return &types.Transactions{} }
+func (p *BlobPool) ValidateTx(tx *types.Transaction) error          { return nil }
+
 // Filter returns whether the given transaction can be consumed by the blob pool.
 func (p *BlobPool) Filter(tx *types.Transaction) bool {
 	return tx.Type() == types.BlobTxType
@@ -1653,6 +1660,10 @@ func (p *BlobPool) SubscribeTransactions(ch chan<- core.NewTxsEvent, reorgs bool
 	} else {
 		return p.discoverFeed.Subscribe(ch)
 	}
+}
+
+func (p *BlobPool) SubscribeMempoolClearance(ch chan<- core.NewMempoolCleared) event.Subscription {
+	return nil
 }
 
 // Nonce returns the next nonce of an account, with all transactions executable

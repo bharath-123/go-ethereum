@@ -27,6 +27,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
+	pconfig "github.com/ethereum/go-ethereum/precompile/config"
 	"github.com/holiman/uint256"
 )
 
@@ -114,6 +115,8 @@ type EVM struct {
 	callGasTemp uint64
 	// precompiles holds the precompiled contracts for the current epoch
 	precompiles map[common.Address]PrecompiledContract
+	// stateful precompiles
+	precompileManager *precompileManager
 }
 
 // NewEVM returns a new EVM. The returned EVM is not thread safe and should
@@ -129,6 +132,11 @@ func NewEVM(blockCtx BlockContext, txCtx TxContext, statedb StateDB, chainConfig
 	}
 	evm.precompiles = activePrecompiledContracts(evm.chainRules)
 	evm.interpreter = NewEVMInterpreter(evm)
+
+	// Set up precompiles
+	evm.precompileManager = NewPrecompileManager(evm)
+	evm.precompileManager.RegisterMap(pconfig.PrecompileConfig(chainConfig, blockCtx.BlockNumber.Uint64(), blockCtx.Time))
+
 	return evm
 }
 
@@ -510,6 +518,7 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 			contract.UseGas(contract.Gas, evm.Config.Tracer, tracing.GasChangeCallFailedExecution)
 		}
 	}
+
 	return ret, address, contract.Gas, err
 }
 

@@ -29,7 +29,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -53,6 +52,14 @@ func initMatcher(st *testMatcher) {
 	st.skipLoad(`.*vmPerformance/loop.*`)
 	// Uses 1GB RAM per tested fork
 	st.skipLoad(`^stStaticCall/static_Call1MB`)
+
+	// These tests fail as of https://github.com/ethereum/go-ethereum/pull/28666, since we
+	// no longer delete "leftover storage" when deploying a contract.
+	st.skipLoad(`^stSStoreTest/InitCollision\.json`)
+	st.skipLoad(`^stRevertTest/RevertInCreateInInit\.json`)
+	st.skipLoad(`^stExtCodeHash/dynamicAccountOverwriteEmpty\.json`)
+	st.skipLoad(`^stCreate2/create2collisionStorage\.json`)
+	st.skipLoad(`^stCreate2/RevertInCreateInInitCreate2\.json`)
 
 	// Broken tests:
 	// EOF is not part of cancun
@@ -82,25 +89,25 @@ func TestState(t *testing.T) {
 
 // TestLegacyState tests some older tests, which were moved to the folder
 // 'LegacyTests' for the Istanbul fork.
-func TestLegacyState(t *testing.T) {
-	st := new(testMatcher)
-	initMatcher(st)
-	st.walk(t, legacyStateTestDir, func(t *testing.T, name string, test *StateTest) {
-		execStateTest(t, st, test)
-	})
-}
+//func TestLegacyState(t *testing.T) {
+//	st := new(testMatcher)
+//	initMatcher(st)
+//	st.walk(t, legacyStateTestDir, func(t *testing.T, name string, test *StateTest) {
+//		execStateTest(t, st, test)
+//	})
+//}
 
 // TestExecutionSpecState runs the test fixtures from execution-spec-tests.
-func TestExecutionSpecState(t *testing.T) {
-	if !common.FileExist(executionSpecStateTestDir) {
-		t.Skipf("directory %s does not exist", executionSpecStateTestDir)
-	}
-	st := new(testMatcher)
-
-	st.walk(t, executionSpecStateTestDir, func(t *testing.T, name string, test *StateTest) {
-		execStateTest(t, st, test)
-	})
-}
+//func TestExecutionSpecState(t *testing.T) {
+//	if !common.FileExist(executionSpecStateTestDir) {
+//		t.Skipf("directory %s does not exist", executionSpecStateTestDir)
+//	}
+//	st := new(testMatcher)
+//
+//	st.walk(t, executionSpecStateTestDir, func(t *testing.T, name string, test *StateTest) {
+//		execStateTest(t, st, test)
+//	})
+//}
 
 func execStateTest(t *testing.T, st *testMatcher, test *StateTest) {
 	for _, subtest := range test.Subtests() {

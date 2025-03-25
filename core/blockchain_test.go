@@ -3484,6 +3484,7 @@ func testEIP1559Transition(t *testing.T, scheme string) {
 	}
 
 	state, _ := chain.State()
+	totalBaseFee := new(big.Int).SetUint64(block.BaseFee().Uint64() * block.GasUsed())
 
 	// 3: Ensure that miner received only the tx's tip.
 	actual := state.GetBalance(block.Coinbase()).ToBig()
@@ -3491,6 +3492,8 @@ func testEIP1559Transition(t *testing.T, scheme string) {
 		new(big.Int).SetUint64(block.GasUsed()*block.Transactions()[0].GasTipCap().Uint64()),
 		ethash.ConstantinopleBlockReward.ToBig(),
 	)
+	expected = expected.Add(expected, totalBaseFee)
+
 	if actual.Cmp(expected) != 0 {
 		t.Fatalf("miner balance incorrect: expected %d, got %d", expected, actual)
 	}
@@ -3524,6 +3527,7 @@ func testEIP1559Transition(t *testing.T, scheme string) {
 	block = chain.GetBlockByNumber(2)
 	state, _ = chain.State()
 	effectiveTip := block.Transactions()[0].GasTipCap().Uint64() - block.BaseFee().Uint64()
+	totalBaseFee = new(big.Int).SetUint64(block.BaseFee().Uint64() * block.GasUsed())
 
 	// 6+5: Ensure that miner received only the tx's effective tip.
 	actual = state.GetBalance(block.Coinbase()).ToBig()
@@ -3531,6 +3535,7 @@ func testEIP1559Transition(t *testing.T, scheme string) {
 		new(big.Int).SetUint64(block.GasUsed()*effectiveTip),
 		ethash.ConstantinopleBlockReward.ToBig(),
 	)
+	expected = expected.Add(expected, totalBaseFee)
 	if actual.Cmp(expected) != 0 {
 		t.Fatalf("miner balance incorrect: expected %d, got %d", expected, actual)
 	}
@@ -4133,10 +4138,12 @@ func TestEIP3651(t *testing.T) {
 	}
 
 	state, _ := chain.State()
+	totalBaseFee := new(big.Int).SetUint64(block.BaseFee().Uint64() * block.GasUsed())
 
 	// 3: Ensure that miner received only the tx's tip.
 	actual := state.GetBalance(block.Coinbase()).ToBig()
 	expected := new(big.Int).SetUint64(block.GasUsed() * block.Transactions()[0].GasTipCap().Uint64())
+	expected = expected.Add(expected, totalBaseFee)
 	if actual.Cmp(expected) != 0 {
 		t.Fatalf("miner balance incorrect: expected %d, got %d", expected, actual)
 	}

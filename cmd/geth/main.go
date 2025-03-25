@@ -19,6 +19,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/urfave/cli/v2"
 	"os"
 	"slices"
 	"sort"
@@ -42,8 +43,6 @@ import (
 	_ "github.com/ethereum/go-ethereum/eth/tracers/js"
 	_ "github.com/ethereum/go-ethereum/eth/tracers/live"
 	_ "github.com/ethereum/go-ethereum/eth/tracers/native"
-
-	"github.com/urfave/cli/v2"
 )
 
 const (
@@ -122,6 +121,7 @@ var (
 		utils.MinerRecommitIntervalFlag,
 		utils.MinerPendingFeeRecipientFlag,
 		utils.MinerNewPayloadTimeoutFlag, // deprecated
+		utils.AuctioneerEnabledFlag,
 		utils.NATFlag,
 		utils.NoDiscoverFlag,
 		utils.DiscoveryV4Flag,
@@ -187,6 +187,9 @@ var (
 		utils.AllowUnprotectedTxs,
 		utils.BatchRequestLimit,
 		utils.BatchResponseMaxSize,
+		utils.GRPCEnabledFlag,
+		utils.GRPCHostFlag,
+		utils.GRPCPortFlag,
 	}
 
 	metricsFlags = []cli.Flag{

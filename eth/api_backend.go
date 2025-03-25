@@ -50,6 +50,10 @@ type EthAPIBackend struct {
 	gpo                 *gasprice.Oracle
 }
 
+func (b *EthAPIBackend) AuctioneerEnabled() bool {
+	return b.eth.AuctioneerEnabled()
+}
+
 // ChainConfig returns the active chain configuration.
 func (b *EthAPIBackend) ChainConfig() *params.ChainConfig {
 	return b.eth.blockchain.Config()
@@ -140,6 +144,13 @@ func (b *EthAPIBackend) BlockByNumber(ctx context.Context, number rpc.BlockNumbe
 		header := b.eth.blockchain.CurrentSafeBlock()
 		if header == nil {
 			return nil, errors.New("safe block not found")
+		}
+		return b.eth.blockchain.GetBlock(header.Hash(), header.Number.Uint64()), nil
+	}
+	if number == rpc.OptimisticBlockNumber {
+		header := b.eth.blockchain.CurrentOptimisticBlock()
+		if header == nil {
+			return nil, errors.New("optimistic block not found")
 		}
 		return b.eth.blockchain.GetBlock(header.Hash(), header.Number.Uint64()), nil
 	}
@@ -275,11 +286,20 @@ func (b *EthAPIBackend) SubscribeChainHeadEvent(ch chan<- core.ChainHeadEvent) e
 	return b.eth.BlockChain().SubscribeChainHeadEvent(ch)
 }
 
+func (b *EthAPIBackend) SubscribeChainOptimisticHeadEvent(ch chan<- core.ChainOptimisticHeadEvent) event.Subscription {
+	return b.eth.BlockChain().SubscribeChainOptimisticHeadEvent(ch)
+}
+
 func (b *EthAPIBackend) SubscribeLogsEvent(ch chan<- []*types.Log) event.Subscription {
 	return b.eth.BlockChain().SubscribeLogsEvent(ch)
 }
 
 func (b *EthAPIBackend) SendTx(ctx context.Context, signedTx *types.Transaction) error {
+	// Astria Geth does not support BlobTxs
+	// DepositTx can only be generated through execution pathway
+	if signedTx.Type() == types.BlobTxType || signedTx.Type() == types.DepositTxType {
+		return types.ErrTxTypeNotSupported
+	}
 	return b.eth.txPool.Add([]*types.Transaction{signedTx}, true, false)[0]
 }
 

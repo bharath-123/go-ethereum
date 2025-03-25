@@ -42,3 +42,9 @@ profile.cov
 .vscode
 
 tests/spec-tests/
+
+contracts/abi
+contracts/bin
+
+precompile/bindings
+precompile/out

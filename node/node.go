@@ -66,6 +66,11 @@ type Node struct {
 	ipc           *ipcServer  // Stores information about the ipc http server
 	inprocHandler *rpc.Server // In-process RPC request handler to process the API requests
 
+	// grpc
+	grpcServerHandler *GRPCServerHandler // Stores information about the grpc server
+
+	enableAuctioneer bool
+
 	databases map[*closeTrackingDB]struct{} // All open databases
 }
 
@@ -155,6 +160,10 @@ func New(conf *Config) (*Node, error) {
 	node.ws = newHTTPServer(node.log, rpc.DefaultHTTPTimeouts)
 	node.wsAuth = newHTTPServer(node.log, rpc.DefaultHTTPTimeouts)
 	node.ipc = newIPCServer(node.log, conf.IPCEndpoint())
+
+	if conf.EnableAuctioneer {
+		node.enableAuctioneer = true
+	}
 
 	return node, nil
 }
@@ -274,8 +283,16 @@ func (n *Node) openEndpoints() error {
 	// start RPC endpoints
 	err := n.startRPC()
 	if err != nil {
+		n.log.Error("failed to start RPC endpoints", "err", err)
 		n.stopRPC()
 		n.server.Stop()
+	}
+
+	// start GRPC endpoints
+	err = n.startGRPC()
+	if err != nil {
+		n.log.Error("failed to start gRPC endpoints", "err", err)
+		n.stopGRPC()
 	}
 	return err
 }
@@ -284,6 +301,9 @@ func (n *Node) openEndpoints() error {
 // It is the inverse of Start.
 func (n *Node) stopServices(running []Lifecycle) error {
 	n.stopRPC()
+
+	// Stop GRPC server
+	n.stopGRPC()
 
 	// Stop running lifecycles in reverse order.
 	failure := &StopError{Services: make(map[reflect.Type]error)}
@@ -523,6 +543,23 @@ func (n *Node) stopRPC() {
 	n.stopInProc()
 }
 
+func (n *Node) startGRPC() error {
+	if n.grpcServerHandler != nil {
+		// start the server
+		if err := n.grpcServerHandler.Start(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (n *Node) stopGRPC() {
+	if n.grpcServerHandler != nil {
+		n.grpcServerHandler.Stop()
+	}
+}
+
 // startInProc registers all RPC APIs on the inproc server.
 func (n *Node) startInProc(apis []rpc.API) error {
 	for _, api := range apis {
@@ -588,6 +625,19 @@ func (n *Node) getAPIs() (unauthenticated, all []rpc.API) {
 		}
 	}
 	return unauthenticated, n.rpcAPIs
+}
+
+// RegisterGRPCServer registers a gRPC server on the node.
+// This allows us to control grpc server startup and shutdown from the node.
+func (n *Node) RegisterGRPCServer(handler *GRPCServerHandler) {
+	n.lock.Lock()
+	defer n.lock.Unlock()
+
+	if n.state != initializingState {
+		panic("can't register gRPC server on running/stopped node")
+	}
+
+	n.grpcServerHandler = handler
 }
 
 // RegisterHandler mounts a handler on the given path on the canonical HTTP server.
@@ -669,6 +719,11 @@ func (n *Node) HTTPEndpoint() string {
 	return "http://" + n.http.listenAddr()
 }
 
+// GRPCEndpoint returns the URL of the GRPC server.
+func (n *Node) GRPCEndpoint() string {
+	return "http://" + n.grpcServerHandler.endpoint
+}
+
 // WSEndpoint returns the current JSON-RPC over WebSocket endpoint.
 func (n *Node) WSEndpoint() string {
 	if n.http.wsAllowed() {
@@ -694,6 +749,10 @@ func (n *Node) WSAuthEndpoint() string {
 // the current protocol stack.
 func (n *Node) EventMux() *event.TypeMux {
 	return n.eventmux
+}
+
+func (n *Node) AuctioneerEnabled() bool {
+	return n.enableAuctioneer
 }
 
 // OpenDatabase opens an existing database with the given name (or creates one if no
