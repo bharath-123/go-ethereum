@@ -16,6 +16,7 @@
 
 package gasprice
 
+// TODO - bharath - revisit this test to check why its not working
 //
 //func TestFeeHistory(t *testing.T) {
 //	var cases = []struct {
