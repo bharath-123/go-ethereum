@@ -4220,6 +4220,7 @@ func TestEIP3651(t *testing.T) {
 	actual := state.GetBalance(block.Coinbase())
 
 	totalBaseFee := new(big.Int).SetUint64(block.GasUsed() * block.BaseFee().Uint64())
+
 	expected := new(big.Int).SetUint64(block.GasUsed() * block.Transactions()[0].GasTipCap().Uint64())
 	expected = expected.Add(expected, totalBaseFee)
 	if actual.Cmp(uint256.MustFromBig(expected)) != 0 {

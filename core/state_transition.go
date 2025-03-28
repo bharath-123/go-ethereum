@@ -18,6 +18,7 @@ package core
 
 import (
 	"fmt"
+	"github.com/ethereum/go-ethereum/log"
 	"math"
 	"math/big"
 
@@ -27,7 +28,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto/kzg4844"
-	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 )
@@ -255,8 +255,9 @@ func (st *StateTransition) buyGas() error {
 	if st.msg.GasFeeCap != nil {
 		balanceCheck.SetUint64(st.msg.GasLimit)
 		balanceCheck = balanceCheck.Mul(balanceCheck, st.msg.GasFeeCap)
-		balanceCheck.Add(balanceCheck, st.msg.Value)
 	}
+	balanceCheck.Add(balanceCheck, st.msg.Value)
+
 	if st.evm.ChainConfig().IsCancun(st.evm.Context.BlockNumber, st.evm.Context.Time) {
 		if blobGas := st.blobGasUsed(); blobGas > 0 {
 			// Check that the user has enough funds to cover blobGasUsed * tx.BlobGasFeeCap
@@ -443,6 +444,14 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	}
 	st.gasRemaining -= gas
 
+	if rules.IsEIP4762 {
+		st.evm.AccessEvents.AddTxOrigin(msg.From)
+
+		if targetAddr := msg.To; targetAddr != nil {
+			st.evm.AccessEvents.AddTxDestination(*targetAddr, msg.Value.Sign() != 0)
+		}
+	}
+
 	// Check clause 6
 	value, overflow := uint256.FromBig(msg.Value)
 	if overflow {
@@ -497,21 +506,26 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	if rules.IsLondon {
 		effectiveTip = cmath.BigMin(msg.GasTipCap, new(big.Int).Sub(msg.GasFeeCap, st.evm.Context.BaseFee))
 	}
+	effectiveTipU256, _ := uint256.FromBig(effectiveTip)
 
 	if st.evm.Config.NoBaseFee && msg.GasFeeCap.Sign() == 0 && msg.GasTipCap.Sign() == 0 {
 		// Skip fee payment when NoBaseFee is set and the fee fields
 		// are 0. This avoids a negative effectiveTip being applied to
 		// the coinbase when simulating calls.
 	} else {
-		fee := new(big.Int).SetUint64(st.gasUsed())
-		fee.Mul(fee, effectiveTip)
-		st.state.AddBalance(st.evm.Context.Coinbase, uint256.MustFromBig(fee), tracing.BalanceIncreaseRewardTransactionFee)
+		fee := new(uint256.Int).SetUint64(st.gasUsed())
+		fee.Mul(fee, effectiveTipU256)
+		st.state.AddBalance(st.evm.Context.Coinbase, fee, tracing.BalanceIncreaseRewardTransactionFee)
 
 		// collect base fee instead of burn
 		if rules.IsLondon && st.evm.Context.Coinbase.Cmp(common.Address{}) != 0 {
 			baseFee := new(big.Int).SetUint64(st.gasUsed())
 			baseFee.Mul(baseFee, st.evm.Context.BaseFee)
 			st.state.AddBalance(st.evm.Context.Coinbase, uint256.MustFromBig(baseFee), tracing.BalanceIncreaseRewardTransactionFee)
+		}
+
+		if rules.IsEIP4762 && fee.Sign() != 0 {
+			st.evm.AccessEvents.BalanceGas(st.evm.Context.Coinbase, true)
 		}
 	}
 
