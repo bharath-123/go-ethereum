@@ -21,7 +21,6 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -80,7 +79,7 @@ func TestTransactionFutureAttackWithAuctioneerEnabled(t *testing.T) {
 	t.Parallel()
 
 	// Create the pool to test the limit enforcement with
-	statedb, _ := state.New(types.EmptyRootHash, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	statedb, _ := state.New(types.EmptyRootHash, state.NewDatabaseForTesting())
 	blockchain := newTestBlockChain(eip1559Config, 1000000, statedb, new(event.Feed))
 	config := testTxPoolConfig
 	config.GlobalQueue = 100
@@ -117,7 +116,7 @@ func TestTransactionFutureAttackWithAuctioneerEnabled(t *testing.T) {
 func TestTransactionFuture1559WithAuctioneerEnabled(t *testing.T) {
 	t.Parallel()
 	// Create the pool to test the pricing enforcement with
-	statedb, _ := state.New(types.EmptyRootHash, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	statedb, _ := state.New(types.EmptyRootHash, state.NewDatabaseForTesting())
 	blockchain := newTestBlockChain(eip1559Config, 1000000, statedb, new(event.Feed))
 	pool := New(testTxPoolConfig, blockchain, true)
 	pool.Init(testTxPoolConfig.PriceLimit, blockchain.CurrentBlock(), makeAddressReserver())
@@ -150,7 +149,7 @@ func TestTransactionFuture1559WithAuctioneerEnabled(t *testing.T) {
 func TestTransactionZAttackWithAuctioneerEnabled(t *testing.T) {
 	t.Parallel()
 	// Create the pool to test the pricing enforcement with
-	statedb, _ := state.New(types.EmptyRootHash, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	statedb, _ := state.New(types.EmptyRootHash, state.NewDatabaseForTesting())
 	blockchain := newTestBlockChain(eip1559Config, 1000000, statedb, new(event.Feed))
 	pool := New(testTxPoolConfig, blockchain, true)
 	pool.Init(testTxPoolConfig.PriceLimit, blockchain.CurrentBlock(), makeAddressReserver())
@@ -218,7 +217,7 @@ func TestTransactionZAttackWithAuctioneerEnabled(t *testing.T) {
 
 func BenchmarkFutureAttackWithAuctioneerEnabled(b *testing.B) {
 	// Create the pool to test the limit enforcement with
-	statedb, _ := state.New(types.EmptyRootHash, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	statedb, _ := state.New(types.EmptyRootHash, state.NewDatabaseForTesting())
 	blockchain := newTestBlockChain(eip1559Config, 1000000, statedb, new(event.Feed))
 	config := testTxPoolConfig
 	config.GlobalQueue = 100
@@ -247,7 +246,7 @@ func TestTransactionFutureAttackWithAuctioneerDisabled(t *testing.T) {
 	t.Parallel()
 
 	// Create the pool to test the limit enforcement with
-	statedb, _ := state.New(types.EmptyRootHash, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	statedb, _ := state.New(types.EmptyRootHash, state.NewDatabaseForTesting())
 	blockchain := newTestBlockChain(eip1559Config, 1000000, statedb, new(event.Feed))
 	config := testTxPoolConfig
 	config.GlobalQueue = 100
@@ -284,7 +283,7 @@ func TestTransactionFutureAttackWithAuctioneerDisabled(t *testing.T) {
 func TestTransactionFuture1559WithAuctioneerDisabled(t *testing.T) {
 	t.Parallel()
 	// Create the pool to test the pricing enforcement with
-	statedb, _ := state.New(types.EmptyRootHash, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	statedb, _ := state.New(types.EmptyRootHash, state.NewDatabaseForTesting())
 	blockchain := newTestBlockChain(eip1559Config, 1000000, statedb, new(event.Feed))
 	pool := New(testTxPoolConfig, blockchain, false)
 	pool.Init(testTxPoolConfig.PriceLimit, blockchain.CurrentBlock(), makeAddressReserver())
@@ -317,7 +316,7 @@ func TestTransactionFuture1559WithAuctioneerDisabled(t *testing.T) {
 func TestTransactionZAttackWithAuctioneerDisabled(t *testing.T) {
 	t.Parallel()
 	// Create the pool to test the pricing enforcement with
-	statedb, _ := state.New(types.EmptyRootHash, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	statedb, _ := state.New(types.EmptyRootHash, state.NewDatabaseForTesting())
 	blockchain := newTestBlockChain(eip1559Config, 1000000, statedb, new(event.Feed))
 	pool := New(testTxPoolConfig, blockchain, false)
 	pool.Init(testTxPoolConfig.PriceLimit, blockchain.CurrentBlock(), makeAddressReserver())
@@ -385,7 +384,7 @@ func TestTransactionZAttackWithAuctioneerDisabled(t *testing.T) {
 
 func BenchmarkFutureAttackWithAuctioneerDisabled(b *testing.B) {
 	// Create the pool to test the limit enforcement with
-	statedb, _ := state.New(types.EmptyRootHash, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	statedb, _ := state.New(types.EmptyRootHash, state.NewDatabaseForTesting())
 	blockchain := newTestBlockChain(eip1559Config, 1000000, statedb, new(event.Feed))
 	config := testTxPoolConfig
 	config.GlobalQueue = 100
