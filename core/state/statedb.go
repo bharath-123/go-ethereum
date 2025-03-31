@@ -675,9 +675,9 @@ func (s *StateDB) Copy() *StateDB {
 	if s.witness != nil {
 		state.witness = s.witness.Copy()
 	}
-	if s.accessEvents != nil {
-		state.accessEvents = s.accessEvents.Copy()
-	}
+	//if s.accessEvents != nil {
+	//	state.accessEvents = s.accessEvents.Copy()
+	//}
 	// Deep copy cached state objects.
 	for addr, obj := range s.stateObjects {
 		state.stateObjects[addr] = obj.deepCopy(state)
@@ -699,6 +699,7 @@ func (s *StateDB) Copy() *StateDB {
 		}
 		state.logs[hash] = cpy
 	}
+
 	return state
 }
 
