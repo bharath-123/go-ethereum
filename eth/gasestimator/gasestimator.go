@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -28,7 +27,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/internal/ethapi/override"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 )
@@ -39,11 +37,12 @@ import (
 // these together, it would be excessively hard to test. Splitting the parts out
 // allows testing without needing a proper live chain.
 type Options struct {
-	Config         *params.ChainConfig      // Chain configuration for hard fork selection
-	Chain          core.ChainContext        // Chain context to access past block hashes
-	Header         *types.Header            // Header defining the block context to execute in
-	State          *state.StateDB           // Pre-state on top of which to estimate the gas
-	BlockOverrides *override.BlockOverrides // Block overrides to apply during the estimation
+	Config *params.ChainConfig // Chain configuration for hard fork selection
+	Chain  core.ChainContext   // Chain context to access past block hashes
+	Header *types.Header       // Header defining the block context to execute in
+	State  *state.StateDB      // Pre-state on top of which to estimate the gas
+
+	BlobBaseFee *big.Int // BlobBaseFee optionally overrides the blob base fee in the execution context.
 
 	ErrorRatio float64 // Allowed overestimation ratio for faster estimation termination
 }
@@ -62,6 +61,14 @@ func Estimate(ctx context.Context, call *core.Message, opts *Options, gasCap uin
 	if call.GasLimit >= params.TxGas {
 		hi = call.GasLimit
 	}
+
+	// Cap the maximum gas allowance according to EIP-7825 if the estimation targets Osaka
+	if hi > params.MaxTxGas {
+		if opts.Config.IsOsaka(opts.Header.Number, opts.Header.Time) {
+			hi = params.MaxTxGas
+		}
+	}
+
 	// Normalize the max fee per gas the call is willing to spend.
 	var feeCap *big.Int
 	if call.GasFeeCap != nil {
@@ -144,7 +151,7 @@ func Estimate(ctx context.Context, call *core.Message, opts *Options, gasCap uin
 	// There's a fairly high chance for the transaction to execute successfully
 	// with gasLimit set to the first execution's usedGas + gasRefund. Explicitly
 	// check that gas amount and use as a limit for the binary search.
-	optimisticGasLimit := (result.UsedGas + result.RefundedGas + params.CallStipend) * 64 / 63
+	optimisticGasLimit := (result.MaxUsedGas + params.CallStipend) * 64 / 63
 	if optimisticGasLimit < hi {
 		failed, _, err = execute(ctx, call, opts, optimisticGasLimit)
 		if err != nil {
@@ -170,7 +177,7 @@ func Estimate(ctx context.Context, call *core.Message, opts *Options, gasCap uin
 				break
 			}
 		}
-		mid := (hi + lo) / 2
+		mid := lo + (hi-lo)/2
 		if mid > lo*2 {
 			// Most txs don't need much higher gas limit than their gas used, and most txs don't
 			// require near the full block limit of gas, so the selection of where to bisect the
@@ -209,6 +216,9 @@ func execute(ctx context.Context, call *core.Message, opts *Options, gasLimit ui
 		if errors.Is(err, core.ErrIntrinsicGas) {
 			return true, nil, nil // Special case, raise gas limit
 		}
+		if errors.Is(err, core.ErrGasLimitTooHigh) {
+			return true, nil, nil // Special case, lower gas limit
+		}
 		return true, nil, err // Bail out
 	}
 	return result.Failed(), result, nil
@@ -222,10 +232,8 @@ func run(ctx context.Context, call *core.Message, opts *Options) (*core.Executio
 		evmContext = core.NewEVMBlockContext(opts.Header, opts.Chain, nil)
 		dirtyState = opts.State.Copy()
 	)
-	if opts.BlockOverrides != nil {
-		if err := opts.BlockOverrides.Apply(&evmContext); err != nil {
-			return nil, err
-		}
+	if opts.BlobBaseFee != nil {
+		evmContext.BlobBaseFee = new(big.Int).Set(opts.BlobBaseFee)
 	}
 	// Lower the basefee to 0 to avoid breaking EVM
 	// invariants (basefee < feecap).
@@ -248,7 +256,7 @@ func run(ctx context.Context, call *core.Message, opts *Options) (*core.Executio
 		evm.Cancel()
 	}()
 	// Execute the call, returning a wrapped error or the result
-	result, err := core.ApplyMessage(evm, call, new(core.GasPool).AddGas(math.MaxUint64))
+	result, err := core.ApplyMessage(evm, call, nil)
 	if vmerr := dirtyState.Error(); vmerr != nil {
 		return nil, vmerr
 	}

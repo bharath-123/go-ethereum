@@ -22,6 +22,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -108,7 +109,9 @@ func setDefaults(cfg *Config) {
 	if cfg.BlobBaseFee == nil {
 		cfg.BlobBaseFee = big.NewInt(params.BlobTxMinBlobGasprice)
 	}
-	cfg.Random = &(common.Hash{})
+	if cfg.Random == nil {
+		cfg.Random = new(common.Hash)
+	}
 }
 
 // Execute executes the code using the input as call data during the execution.
@@ -139,17 +142,17 @@ func Execute(code, input []byte, cfg *Config) ([]byte, *state.StateDB, error) {
 	cfg.State.Prepare(rules, cfg.Origin, cfg.Coinbase, &address, vm.ActivePrecompiles(rules), nil)
 	cfg.State.CreateAccount(address)
 	// set the receiver's (the executing contract) code for execution.
-	cfg.State.SetCode(address, code)
+	cfg.State.SetCode(address, code, tracing.CodeChangeUnspecified)
 	// Call the code with the given configuration.
-	ret, leftOverGas, err := vmenv.Call(
+	ret, leftOverGas, _, err := vmenv.Call(
 		cfg.Origin,
 		common.BytesToAddress([]byte("contract")),
 		input,
-		cfg.GasLimit,
+		vm.NewGasBudgetReg(cfg.GasLimit),
 		uint256.MustFromBig(cfg.Value),
 	)
 	if cfg.EVMConfig.Tracer != nil && cfg.EVMConfig.Tracer.OnTxEnd != nil {
-		cfg.EVMConfig.Tracer.OnTxEnd(&types.Receipt{GasUsed: cfg.GasLimit - leftOverGas}, err)
+		cfg.EVMConfig.Tracer.OnTxEnd(&types.Receipt{GasUsed: cfg.GasLimit - leftOverGas.RegularGas}, err)
 	}
 	return ret, cfg.State, err
 }
@@ -176,16 +179,16 @@ func Create(input []byte, cfg *Config) ([]byte, common.Address, uint64, error) {
 	// - reset transient storage(eip 1153)
 	cfg.State.Prepare(rules, cfg.Origin, cfg.Coinbase, nil, vm.ActivePrecompiles(rules), nil)
 	// Call the code with the given configuration.
-	code, address, leftOverGas, err := vmenv.Create(
+	code, address, leftOverGas, _, err := vmenv.Create(
 		cfg.Origin,
 		input,
-		cfg.GasLimit,
+		vm.NewGasBudgetReg(cfg.GasLimit),
 		uint256.MustFromBig(cfg.Value),
 	)
 	if cfg.EVMConfig.Tracer != nil && cfg.EVMConfig.Tracer.OnTxEnd != nil {
-		cfg.EVMConfig.Tracer.OnTxEnd(&types.Receipt{GasUsed: cfg.GasLimit - leftOverGas}, err)
+		cfg.EVMConfig.Tracer.OnTxEnd(&types.Receipt{GasUsed: cfg.GasLimit - leftOverGas.RegularGas}, err)
 	}
-	return code, address, leftOverGas, err
+	return code, address, leftOverGas.RegularGas, err
 }
 
 // Call executes the code given by the contract's address. It will return the
@@ -210,15 +213,15 @@ func Call(address common.Address, input []byte, cfg *Config) ([]byte, uint64, er
 	statedb.Prepare(rules, cfg.Origin, cfg.Coinbase, &address, vm.ActivePrecompiles(rules), nil)
 
 	// Call the code with the given configuration.
-	ret, leftOverGas, err := vmenv.Call(
+	ret, leftOverGas, _, err := vmenv.Call(
 		cfg.Origin,
 		address,
 		input,
-		cfg.GasLimit,
+		vm.NewGasBudgetReg(cfg.GasLimit),
 		uint256.MustFromBig(cfg.Value),
 	)
 	if cfg.EVMConfig.Tracer != nil && cfg.EVMConfig.Tracer.OnTxEnd != nil {
-		cfg.EVMConfig.Tracer.OnTxEnd(&types.Receipt{GasUsed: cfg.GasLimit - leftOverGas}, err)
+		cfg.EVMConfig.Tracer.OnTxEnd(&types.Receipt{GasUsed: cfg.GasLimit - leftOverGas.RegularGas}, err)
 	}
-	return ret, leftOverGas, err
+	return ret, leftOverGas.RegularGas, err
 }

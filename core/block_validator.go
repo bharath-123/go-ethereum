@@ -49,6 +49,10 @@ func NewBlockValidator(config *params.ChainConfig, blockchain *BlockChain) *Bloc
 // header's transaction and uncle roots. The headers are assumed to be already
 // validated at this point.
 func (v *BlockValidator) ValidateBody(block *types.Block) error {
+	// check EIP 7934 RLP-encoded block size cap
+	if v.config.IsOsaka(block.Number(), block.Time()) && block.Size() > params.MaxBlockSize {
+		return ErrBlockOversized
+	}
 	// Check whether the block is already imported.
 	if v.bc.HasBlockAndState(block.Hash(), block.NumberU64()) {
 		return ErrKnownBlock
@@ -105,6 +109,25 @@ func (v *BlockValidator) ValidateBody(block *types.Block) error {
 		if blobs > 0 {
 			return errors.New("data blobs present in block body")
 		}
+	}
+
+	// block access list hash must be present in header after the Amsterdam hard fork
+	if v.config.IsAmsterdam(block.Number(), block.Time()) {
+		if block.Header().BlockAccessListHash == nil {
+			// TODO: verify that this check isn't also done elsewhere
+			return fmt.Errorf("block access list hash not set in header")
+		}
+		// if the block does not come with an access list, we compute the access list locally
+		// as part of execution and validate against the header's access list hash.
+		if block.AccessList() != nil {
+			if *block.Header().BlockAccessListHash != block.AccessList().Hash() {
+				return fmt.Errorf("access list hash mismatch.  local: %x. remote: %x\n", block.AccessList().Hash(), *block.Header().BlockAccessListHash)
+			} else if err := block.AccessList().Validate(len(block.Transactions()), block.GasLimit()); err != nil {
+				return fmt.Errorf("invalid block access list: %v", err)
+			}
+		}
+	} else if block.AccessList() != nil {
+		return fmt.Errorf("block had access list before amsterdam")
 	}
 
 	// Ancestor block must be known.

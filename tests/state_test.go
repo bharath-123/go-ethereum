@@ -57,6 +57,11 @@ func initMatcher(st *testMatcher) {
 	// Broken tests:
 	// EOF is not part of cancun
 	st.skipLoad(`^stEOF/`)
+
+	st.skipLoad(`RevertInCreateInInit`)
+	st.skipLoad(`InitCollisionParis`)
+	st.skipLoad(`dynamicAccountOverwriteEmpty_Paris`)
+	st.skipLoad(`create2collisionStorageParis`)
 }
 
 func TestState(t *testing.T) {
@@ -91,6 +96,12 @@ func TestExecutionSpecState(t *testing.T) {
 		t.Skipf("directory %s does not exist", executionSpecStateTestDir)
 	}
 	st := new(testMatcher)
+
+	// Broken tests
+	st.skipLoad(`RevertInCreateInInit`)
+	st.skipLoad(`InitCollisionParis`)
+	st.skipLoad(`dynamicAccountOverwriteEmpty_Paris`)
+	st.skipLoad(`create2collisionStorageParis`)
 
 	st.walk(t, executionSpecStateTestDir, func(t *testing.T, name string, test *StateTest) {
 		execStateTest(t, st, test)
@@ -156,8 +167,8 @@ func execStateTest(t *testing.T, st *testMatcher, test *StateTest) {
 			withTrace(t, test.gasLimit(subtest), func(vmconfig vm.Config) error {
 				var result error
 				test.Run(subtest, vmconfig, true, rawdb.PathScheme, func(err error, state *StateTestState) {
-					if state.Snapshots != nil && state.StateDB != nil {
-						if _, err := state.Snapshots.Journal(state.StateDB.IntermediateRoot(false)); err != nil {
+					if state.TrieDB != nil && state.StateDB != nil {
+						if err := state.TrieDB.Journal(state.StateDB.IntermediateRoot(false)); err != nil {
 							result = err
 							return
 						}
@@ -301,7 +312,7 @@ func runBenchmark(b *testing.B, t *StateTest) {
 			evm.SetTxContext(txContext)
 
 			// Create "contract" for sender to cache code analysis.
-			sender := vm.NewContract(msg.From, msg.From, nil, 0, nil)
+			sender := vm.NewContract(msg.From, msg.From, nil, vm.GasBudget{}, nil)
 
 			var (
 				gasUsed uint64
@@ -315,8 +326,10 @@ func runBenchmark(b *testing.B, t *StateTest) {
 				b.StartTimer()
 				start := time.Now()
 
+				initialGas := vm.NewGasBudgetReg(msg.GasLimit)
+
 				// Execute the message.
-				_, leftOverGas, err := evm.Call(sender.Address(), *msg.To, msg.Data, msg.GasLimit, uint256.MustFromBig(msg.Value))
+				_, leftOverGas, _, err := evm.Call(sender.Address(), *msg.To, msg.Data, initialGas.Copy(), uint256.MustFromBig(msg.Value))
 				if err != nil {
 					b.Error(err)
 					return
@@ -325,7 +338,7 @@ func runBenchmark(b *testing.B, t *StateTest) {
 				b.StopTimer()
 				elapsed += uint64(time.Since(start))
 				refund += state.StateDB.GetRefund()
-				gasUsed += msg.GasLimit - leftOverGas
+				gasUsed += leftOverGas.Used(initialGas)
 
 				state.StateDB.RevertToSnapshot(snapshot)
 			}

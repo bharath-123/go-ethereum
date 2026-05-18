@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/ethereum/go-ethereum/core/types/bal"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/misc"
@@ -32,7 +34,6 @@ import (
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/triedb"
-	"github.com/ethereum/go-verkle"
 	"github.com/holiman/uint256"
 )
 
@@ -52,6 +53,8 @@ type BlockGen struct {
 	withdrawals []*types.Withdrawal
 
 	engine consensus.Engine
+
+	accessList *bal.ConstructionBlockAccessList
 }
 
 // SetCoinbase sets the coinbase of the generated block.
@@ -64,7 +67,7 @@ func (b *BlockGen) SetCoinbase(addr common.Address) {
 		panic("coinbase can only be set once")
 	}
 	b.header.Coinbase = addr
-	b.gasPool = new(GasPool).AddGas(b.header.GasLimit)
+	b.gasPool = NewGasPool(b.header.GasLimit)
 }
 
 // SetExtra sets the extra data field of the generated block.
@@ -75,6 +78,11 @@ func (b *BlockGen) SetExtra(data []byte) {
 // SetNonce sets the nonce field of the generated block.
 func (b *BlockGen) SetNonce(nonce types.BlockNonce) {
 	b.header.Nonce = nonce
+}
+
+// SetSlotNumber sets the slot number field of the generated block.
+func (b *BlockGen) SetSlotNumber(slot uint64) {
+	b.header.SlotNumber = &slot
 }
 
 // SetDifficulty sets the difficulty field of the generated block. This method is
@@ -99,7 +107,11 @@ func (b *BlockGen) Difficulty() *big.Int {
 func (b *BlockGen) SetParentBeaconRoot(root common.Hash) {
 	b.header.ParentBeaconRoot = &root
 	blockContext := NewEVMBlockContext(b.header, b.cm, &b.header.Coinbase)
-	ProcessBeaconBlockRoot(root, vm.NewEVM(blockContext, b.statedb, b.cm.config, vm.Config{}))
+	reads, writes := ProcessBeaconBlockRoot(root, vm.NewEVM(blockContext, b.statedb, b.cm.config, vm.Config{}))
+	if b.accessList != nil {
+		b.accessList.AddBlockInitMutations(writes)
+		b.accessList.AddAccesses(reads)
+	}
 }
 
 // addTx adds a transaction to the generated block. If no coinbase has
@@ -118,13 +130,19 @@ func (b *BlockGen) addTx(bc *BlockChain, vmConfig vm.Config, tx *types.Transacti
 		evm          = vm.NewEVM(blockContext, b.statedb, b.cm.config, vmConfig)
 	)
 	b.statedb.SetTxContext(tx.Hash(), len(b.txs))
-	receipt, err := ApplyTransaction(evm, b.gasPool, b.statedb, b.header, tx, &b.header.GasUsed)
+	txAccesses, txMut, receipt, err := ApplyTransaction(evm, b.gasPool, b.statedb, b.header, tx)
 	if err != nil {
 		panic(err)
 	}
+	b.header.GasUsed = b.gasPool.Used()
+	if b.accessList != nil {
+		b.accessList.AddTransactionMutations(txMut, len(b.txs))
+		b.accessList.AddAccesses(txAccesses)
+	}
+
 	// Merge the tx-local access event into the "block-local" one, in order to collect
 	// all values, so that the witness can be built.
-	if b.statedb.GetTrie().IsVerkle() {
+	if b.statedb.Database().Type().Is(state.TypeUBT) {
 		b.statedb.AccessEvents().Merge(evm.AccessEvents)
 	}
 	b.txs = append(b.txs, tx)
@@ -162,8 +180,8 @@ func (b *BlockGen) AddTxWithChain(bc *BlockChain, tx *types.Transaction) {
 // AddTxWithVMConfig adds a transaction to the generated block. If no coinbase has
 // been set, the block's coinbase is set to the zero address.
 // The evm interpreter can be customized with the provided vm config.
-func (b *BlockGen) AddTxWithVMConfig(tx *types.Transaction, config vm.Config) {
-	b.addTx(nil, config, tx)
+func (b *BlockGen) AddTxWithVMConfig(bc *BlockChain, tx *types.Transaction, config vm.Config) {
+	b.addTx(bc, config, tx)
 }
 
 // GetBalance returns the balance of the given address at the generated block.
@@ -324,13 +342,29 @@ func (b *BlockGen) collectRequests(readonly bool) (requests [][]byte) {
 		if err := ParseDepositLogs(&requests, blockLogs, b.cm.config); err != nil {
 			panic(fmt.Sprintf("failed to parse deposit log: %v", err))
 		}
+		// TODO: these accesses should be accumulated in the BAL
 		// create EVM for system calls
 		blockContext := NewEVMBlockContext(b.header, b.cm, &b.header.Coinbase)
 		evm := vm.NewEVM(blockContext, statedb, b.cm.config, vm.Config{})
+
+		mut := new(bal.StateMutations)
 		// EIP-7002
-		ProcessWithdrawalQueue(&requests, evm)
+		withdrawalAccess, withdrawalMut, err := ProcessWithdrawalQueue(&requests, evm)
+		if err != nil {
+			panic(fmt.Sprintf("could not process withdrawal requests: %v", err))
+		}
+		mut.Merge(withdrawalMut)
 		// EIP-7251
-		ProcessConsolidationQueue(&requests, evm)
+		consolidationAccess, consolidationMut, err := ProcessConsolidationQueue(&requests, evm)
+		if err != nil {
+			panic(fmt.Sprintf("could not process consolidation requests: %v", err))
+		}
+		mut.Merge(consolidationMut)
+		if b.cm.config.IsAmsterdam(b.header.Number, b.header.Time) {
+			b.accessList.AddAccesses(withdrawalAccess)
+			b.accessList.AddAccesses(consolidationAccess)
+			b.accessList.AddBlockFinalizeMutations(mut)
+		}
 	}
 	return requests
 }
@@ -359,7 +393,10 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 	genblock := func(i int, parent *types.Block, triedb *triedb.Database, statedb *state.StateDB) (*types.Block, types.Receipts) {
 		b := &BlockGen{i: i, cm: cm, parent: parent, statedb: statedb, engine: engine}
 		b.header = cm.makeHeader(parent, statedb, b.engine)
-
+		isAmsterdam := config.IsAmsterdam(b.header.Number, b.header.Time)
+		if isAmsterdam {
+			b.accessList = bal.NewConstructionBlockAccessList()
+		}
 		// Set the difficulty for clique block. The chain maker doesn't have access
 		// to a chain, so the difficulty will be left unset (nil). Set it here to the
 		// correct value.
@@ -386,13 +423,31 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 			misc.ApplyDAOHardFork(statedb)
 		}
 
-		if config.IsPrague(b.header.Number, b.header.Time) || config.IsVerkle(b.header.Number, b.header.Time) {
+		preTxMutations := bal.NewStateMutations()
+		if config.IsPrague(b.header.Number, b.header.Time) || config.IsUBT(b.header.Number, b.header.Time) {
 			// EIP-2935
 			blockContext := NewEVMBlockContext(b.header, cm, &b.header.Coinbase)
 			blockContext.Random = &common.Hash{} // enable post-merge instruction set
 			evm := vm.NewEVM(blockContext, statedb, cm.config, vm.Config{})
-			ProcessParentBlockHash(b.header.ParentHash, evm)
+			accesses, mutations := ProcessParentBlockHash(b.header.ParentHash, evm)
+			if isAmsterdam {
+				preTxMutations.Merge(mutations)
+				b.accessList.AddAccesses(accesses)
+			}
+
+			beaconRoot := common.Hash{}
+			if b.header.ParentBeaconRoot != nil {
+				beaconRoot = *b.header.ParentBeaconRoot
+			}
+			reads, writes := ProcessBeaconBlockRoot(beaconRoot, evm)
+			if isAmsterdam {
+				preTxMutations.Merge(writes)
+				b.accessList.AddAccesses(reads)
+				b.accessList.AddBlockInitMutations(preTxMutations)
+			}
 		}
+
+		// TODO: what about the parent beacon root, and post-block system contract (forget what it is rn)?
 
 		// Execute any user modifications to the block
 		if gen != nil {
@@ -405,11 +460,24 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 			b.header.RequestsHash = &reqHash
 		}
 
-		body := types.Body{Transactions: b.txs, Uncles: b.uncles, Withdrawals: b.withdrawals}
-		block, err := b.engine.FinalizeAndAssemble(cm, b.header, statedb, &body, b.receipts)
-		if err != nil {
-			panic(err)
+		body := types.Body{
+			Transactions: b.txs,
+			Uncles:       b.uncles,
+			Withdrawals:  b.withdrawals,
 		}
+		if !config.IsShanghai(b.header.Number, b.header.Time) {
+			if body.Withdrawals != nil {
+				panic("unexpected withdrawal before shanghai")
+			}
+		} else {
+			if body.Withdrawals == nil {
+				body.Withdrawals = make([]*types.Withdrawal, 0)
+			}
+		}
+		// Assemble the block for delivery. When Amsterdam is active,
+		// pass the accumulated BAL so engine.Finalize's accesses and
+		// mutations are folded in and the BAL is attached to the block.
+		block := AssembleBlock(b.engine, cm, b.header, statedb, &body, b.receipts, b.accessList)
 
 		// Write state changes to db
 		root, err := statedb.Commit(b.header.Number.Uint64(), config.IsEIP158(b.header.Number), config.IsCancun(b.header.Number, b.header.Time))
@@ -423,7 +491,11 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 	}
 
 	// Forcibly use hash-based state scheme for retaining all nodes in disk.
-	triedb := triedb.NewDatabase(db, triedb.HashDefaults)
+	var triedbConfig *triedb.Config = triedb.HashDefaults
+	if config.IsUBT(config.ChainID, 0) {
+		triedbConfig = triedb.UBTDefaults
+	}
+	triedb := triedb.NewDatabase(db, triedbConfig)
 	defer triedb.Close()
 
 	for i := 0; i < n; i++ {
@@ -468,123 +540,19 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 // then generate chain on top.
 func GenerateChainWithGenesis(genesis *Genesis, engine consensus.Engine, n int, gen func(int, *BlockGen)) (ethdb.Database, []*types.Block, []types.Receipts) {
 	db := rawdb.NewMemoryDatabase()
-	triedb := triedb.NewDatabase(db, triedb.HashDefaults)
-	defer triedb.Close()
-	_, err := genesis.Commit(db, triedb)
+	var triedbConfig *triedb.Config = triedb.HashDefaults
+	if genesis.Config != nil && genesis.Config.IsUBT(genesis.Config.ChainID, 0) {
+		triedbConfig = triedb.UBTDefaults
+	}
+	genesisTriedb := triedb.NewDatabase(db, triedbConfig)
+	block, err := genesis.Commit(db, genesisTriedb, nil)
 	if err != nil {
+		genesisTriedb.Close()
 		panic(err)
 	}
-	blocks, receipts := GenerateChain(genesis.Config, genesis.ToBlock(), engine, db, n, gen)
+	genesisTriedb.Close()
+	blocks, receipts := GenerateChain(genesis.Config, block, engine, db, n, gen)
 	return db, blocks, receipts
-}
-
-func GenerateVerkleChain(config *params.ChainConfig, parent *types.Block, engine consensus.Engine, db ethdb.Database, trdb *triedb.Database, n int, gen func(int, *BlockGen)) ([]*types.Block, []types.Receipts, []*verkle.VerkleProof, []verkle.StateDiff) {
-	if config == nil {
-		config = params.TestChainConfig
-	}
-	proofs := make([]*verkle.VerkleProof, 0, n)
-	keyvals := make([]verkle.StateDiff, 0, n)
-	cm := newChainMaker(parent, config, engine)
-
-	genblock := func(i int, parent *types.Block, triedb *triedb.Database, statedb *state.StateDB) (*types.Block, types.Receipts) {
-		b := &BlockGen{i: i, cm: cm, parent: parent, statedb: statedb, engine: engine}
-		b.header = cm.makeHeader(parent, statedb, b.engine)
-
-		// TODO uncomment when proof generation is merged
-		// Save pre state for proof generation
-		// preState := statedb.Copy()
-
-		// EIP-2935 / 7709
-		blockContext := NewEVMBlockContext(b.header, cm, &b.header.Coinbase)
-		blockContext.Random = &common.Hash{} // enable post-merge instruction set
-		evm := vm.NewEVM(blockContext, statedb, cm.config, vm.Config{})
-		ProcessParentBlockHash(b.header.ParentHash, evm)
-
-		// Execute any user modifications to the block.
-		if gen != nil {
-			gen(i, b)
-		}
-
-		requests := b.collectRequests(false)
-		if requests != nil {
-			reqHash := types.CalcRequestsHash(requests)
-			b.header.RequestsHash = &reqHash
-		}
-
-		body := &types.Body{
-			Transactions: b.txs,
-			Uncles:       b.uncles,
-			Withdrawals:  b.withdrawals,
-		}
-		block, err := b.engine.FinalizeAndAssemble(cm, b.header, statedb, body, b.receipts)
-		if err != nil {
-			panic(err)
-		}
-
-		// Write state changes to DB.
-		root, err := statedb.Commit(b.header.Number.Uint64(), config.IsEIP158(b.header.Number), config.IsCancun(b.header.Number, b.header.Time))
-		if err != nil {
-			panic(fmt.Sprintf("state write error: %v", err))
-		}
-		if err = triedb.Commit(root, false); err != nil {
-			panic(fmt.Sprintf("trie write error: %v", err))
-		}
-
-		proofs = append(proofs, block.ExecutionWitness().VerkleProof)
-		keyvals = append(keyvals, block.ExecutionWitness().StateDiff)
-
-		return block, b.receipts
-	}
-
-	for i := 0; i < n; i++ {
-		statedb, err := state.New(parent.Root(), state.NewDatabase(trdb, nil))
-		if err != nil {
-			panic(err)
-		}
-		block, receipts := genblock(i, parent, trdb, statedb)
-
-		// Post-process the receipts.
-		// Here we assign the final block hash and other info into the receipt.
-		// In order for DeriveFields to work, the transaction and receipt lists need to be
-		// of equal length. If AddUncheckedTx or AddUncheckedReceipt are used, there will be
-		// extra ones, so we just trim the lists here.
-		receiptsCount := len(receipts)
-		txs := block.Transactions()
-		if len(receipts) > len(txs) {
-			receipts = receipts[:len(txs)]
-		} else if len(receipts) < len(txs) {
-			txs = txs[:len(receipts)]
-		}
-		var blobGasPrice *big.Int
-		if block.ExcessBlobGas() != nil {
-			blobGasPrice = eip4844.CalcBlobFee(cm.config, block.Header())
-		}
-		if err := receipts.DeriveFields(config, block.Hash(), block.NumberU64(), block.Time(), block.BaseFee(), blobGasPrice, txs); err != nil {
-			panic(err)
-		}
-
-		// Re-expand to ensure all receipts are returned.
-		receipts = receipts[:receiptsCount]
-
-		// Advance the chain.
-		cm.add(block, receipts)
-		parent = block
-	}
-	return cm.chain, cm.receipts, proofs, keyvals
-}
-
-func GenerateVerkleChainWithGenesis(genesis *Genesis, engine consensus.Engine, n int, gen func(int, *BlockGen)) (common.Hash, ethdb.Database, []*types.Block, []types.Receipts, []*verkle.VerkleProof, []verkle.StateDiff) {
-	db := rawdb.NewMemoryDatabase()
-	cacheConfig := DefaultCacheConfigWithScheme(rawdb.PathScheme)
-	cacheConfig.SnapshotLimit = 0
-	triedb := triedb.NewDatabase(db, cacheConfig.triedbConfig(true))
-	defer triedb.Close()
-	genesisBlock, err := genesis.Commit(db, triedb)
-	if err != nil {
-		panic(err)
-	}
-	blocks, receipts, proofs, keyvals := GenerateVerkleChain(genesis.Config, genesisBlock, engine, db, triedb, n, gen)
-	return genesisBlock.Hash(), db, blocks, receipts, proofs, keyvals
 }
 
 func (cm *chainMaker) makeHeader(parent *types.Block, state *state.StateDB, engine consensus.Engine) *types.Header {

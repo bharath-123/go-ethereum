@@ -28,7 +28,6 @@ import (
 	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/triedb"
@@ -89,7 +88,7 @@ func testSetupGenesis(t *testing.T, scheme string) {
 			name: "custom block in DB, genesis == nil",
 			fn: func(db ethdb.Database) (*params.ChainConfig, common.Hash, *params.ConfigCompatError, error) {
 				tdb := triedb.NewDatabase(db, newDbConfig(scheme))
-				customg.Commit(db, tdb)
+				customg.Commit(db, tdb, nil)
 				return SetupGenesisBlock(db, tdb, nil)
 			},
 			wantHash:   customghash,
@@ -99,7 +98,7 @@ func testSetupGenesis(t *testing.T, scheme string) {
 			name: "custom block in DB, genesis == sepolia",
 			fn: func(db ethdb.Database) (*params.ChainConfig, common.Hash, *params.ConfigCompatError, error) {
 				tdb := triedb.NewDatabase(db, newDbConfig(scheme))
-				customg.Commit(db, tdb)
+				customg.Commit(db, tdb, nil)
 				return SetupGenesisBlock(db, tdb, DefaultSepoliaGenesisBlock())
 			},
 			wantErr: &GenesisMismatchError{Stored: customghash, New: params.SepoliaGenesisHash},
@@ -108,7 +107,7 @@ func testSetupGenesis(t *testing.T, scheme string) {
 			name: "custom block in DB, genesis == hoodi",
 			fn: func(db ethdb.Database) (*params.ChainConfig, common.Hash, *params.ConfigCompatError, error) {
 				tdb := triedb.NewDatabase(db, newDbConfig(scheme))
-				customg.Commit(db, tdb)
+				customg.Commit(db, tdb, nil)
 				return SetupGenesisBlock(db, tdb, DefaultHoodiGenesisBlock())
 			},
 			wantErr: &GenesisMismatchError{Stored: customghash, New: params.HoodiGenesisHash},
@@ -117,7 +116,7 @@ func testSetupGenesis(t *testing.T, scheme string) {
 			name: "compatible config in DB",
 			fn: func(db ethdb.Database) (*params.ChainConfig, common.Hash, *params.ConfigCompatError, error) {
 				tdb := triedb.NewDatabase(db, newDbConfig(scheme))
-				oldcustomg.Commit(db, tdb)
+				oldcustomg.Commit(db, tdb, nil)
 				return SetupGenesisBlock(db, tdb, &customg)
 			},
 			wantHash:   customghash,
@@ -129,9 +128,9 @@ func testSetupGenesis(t *testing.T, scheme string) {
 				// Commit the 'old' genesis block with Homestead transition at #2.
 				// Advance to block #4, past the homestead transition block of customg.
 				tdb := triedb.NewDatabase(db, newDbConfig(scheme))
-				oldcustomg.Commit(db, tdb)
+				oldcustomg.Commit(db, tdb, nil)
 
-				bc, _ := NewBlockChain(db, DefaultCacheConfigWithScheme(scheme), &oldcustomg, nil, ethash.NewFullFaker(), vm.Config{}, nil)
+				bc, _ := NewBlockChain(db, &oldcustomg, ethash.NewFullFaker(), DefaultConfig().WithStateScheme(scheme))
 				defer bc.Stop()
 
 				_, blocks, _ := GenerateChainWithGenesis(&oldcustomg, ethash.NewFaker(), 4, nil)
@@ -257,7 +256,9 @@ func newDbConfig(scheme string) *triedb.Config {
 	if scheme == rawdb.HashScheme {
 		return triedb.HashDefaults
 	}
-	return &triedb.Config{PathDB: pathdb.Defaults}
+	config := *pathdb.Defaults
+	config.NoAsyncFlush = true
+	return &triedb.Config{PathDB: &config}
 }
 
 func TestVerkleGenesisCommit(t *testing.T) {
@@ -284,16 +285,16 @@ func TestVerkleGenesisCommit(t *testing.T) {
 		CancunTime:              &verkleTime,
 		PragueTime:              &verkleTime,
 		OsakaTime:               &verkleTime,
-		VerkleTime:              &verkleTime,
+		UBTTime:                 &verkleTime,
 		TerminalTotalDifficulty: big.NewInt(0),
-		EnableVerkleAtGenesis:   true,
+		EnableUBTAtGenesis:      true,
 		Ethash:                  nil,
 		Clique:                  nil,
 		BlobScheduleConfig: &params.BlobScheduleConfig{
 			Cancun: params.DefaultCancunBlobConfig,
 			Prague: params.DefaultPragueBlobConfig,
 			Osaka:  params.DefaultOsakaBlobConfig,
-			Verkle: params.DefaultPragueBlobConfig,
+			UBT:    params.DefaultPragueBlobConfig,
 		},
 	}
 
@@ -307,21 +308,28 @@ func TestVerkleGenesisCommit(t *testing.T) {
 		},
 	}
 
-	expected := common.FromHex("018d20eebb130b5e2b796465fe36aafab650650729a92435aec071bf2386f080")
+	expected := common.FromHex("0870fd587c41dc778019de8c5cb3193fe4ef1f417976461952d3712ba39163f5")
 	got := genesis.ToBlock().Root().Bytes()
 	if !bytes.Equal(got, expected) {
 		t.Fatalf("invalid genesis state root, expected %x, got %x", expected, got)
 	}
 
 	db := rawdb.NewMemoryDatabase()
-	triedb := triedb.NewDatabase(db, triedb.VerkleDefaults)
+
+	config := *pathdb.Defaults
+	config.NoAsyncFlush = true
+
+	triedb := triedb.NewDatabase(db, &triedb.Config{
+		IsUBT:  true,
+		PathDB: &config,
+	})
 	block := genesis.MustCommit(db, triedb)
 	if !bytes.Equal(block.Root().Bytes(), expected) {
 		t.Fatalf("invalid genesis state root, expected %x, got %x", expected, block.Root())
 	}
 
 	// Test that the trie is verkle
-	if !triedb.IsVerkle() {
+	if !triedb.IsUBT() {
 		t.Fatalf("expected trie to be verkle")
 	}
 	vdb := rawdb.NewTable(db, string(rawdb.VerklePrefix))

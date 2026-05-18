@@ -64,6 +64,9 @@ type codecV5 interface {
 	// CurrentChallenge returns the most recent WHOAREYOU challenge that was encoded to given node.
 	// This will return a non-nil value if there is an active handshake attempt with the node, and nil otherwise.
 	CurrentChallenge(id enode.ID, addr string) *v5wire.Whoareyou
+
+	// SessionNode returns a node that has completed the handshake.
+	SessionNode(id enode.ID, addr string) *enode.Node
 }
 
 // UDPv5 is the implementation of protocol version 5.
@@ -325,12 +328,6 @@ func (t *UDPv5) TalkRequestToID(id enode.ID, addr netip.AddrPort, protocol strin
 
 // RandomNodes returns an iterator that finds random nodes in the DHT.
 func (t *UDPv5) RandomNodes() enode.Iterator {
-	if t.tab.len() == 0 {
-		// All nodes were dropped, refresh. The very first query will hit this
-		// case and run the bootstrapping logic.
-		<-t.tab.refresh()
-	}
-
 	return newLookupIterator(t.closeCtx, t.newRandomLookup)
 }
 

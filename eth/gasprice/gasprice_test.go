@@ -30,7 +30,6 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/crypto/kzg4844"
 	"github.com/ethereum/go-ethereum/event"
@@ -105,7 +104,7 @@ func (b *testBackend) GetReceipts(ctx context.Context, hash common.Hash) (types.
 func (b *testBackend) Pending() (*types.Block, types.Receipts, *state.StateDB) {
 	if b.pending {
 		block := b.chain.GetBlockByNumber(testHead + 1)
-		state, _ := b.chain.StateAt(block.Root())
+		state, _ := b.chain.StateAt(block.Header())
 		return block, b.chain.GetReceiptsByHash(block.Hash()), state
 	}
 	return nil, nil, nil
@@ -212,7 +211,7 @@ func newTestBackend(t *testing.T, londonBlock *big.Int, cancunBlock *big.Int, pe
 	})
 
 	// Construct testing chain
-	chain, err := core.NewBlockChain(db, &core.CacheConfig{TrieCleanNoPrefetch: true}, gspec, nil, engine, vm.Config{}, nil)
+	chain, err := core.NewBlockChain(db, gspec, engine, &core.BlockChainConfig{NoPrefetch: true})
 	if err != nil {
 		t.Fatalf("Failed to create local chain, %v", err)
 	}

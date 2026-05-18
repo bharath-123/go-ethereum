@@ -40,7 +40,7 @@ var (
 //
 // Note, the prefetcher's API is not thread safe.
 type triePrefetcher struct {
-	verkle   bool                   // Flag whether the prefetcher is in verkle mode
+	isUBT    bool                   // Flag whether the prefetcher is in UBT mode
 	db       Database               // Database to fetch trie nodes through
 	root     common.Hash            // Root hash of the account trie for metrics
 	fetchers map[string]*subfetcher // Subfetchers for each trie
@@ -67,7 +67,7 @@ type triePrefetcher struct {
 func newTriePrefetcher(db Database, root common.Hash, namespace string, noreads bool) *triePrefetcher {
 	prefix := triePrefetchMetricsPrefix + namespace
 	return &triePrefetcher{
-		verkle:   db.TrieDB().IsVerkle(),
+		isUBT:    db.Type().Is(TypeUBT),
 		db:       db,
 		root:     root,
 		fetchers: make(map[string]*subfetcher), // Active prefetchers use the fetchers map
@@ -206,8 +206,8 @@ func (p *triePrefetcher) used(owner common.Hash, root common.Hash, usedAddr []co
 
 // trieID returns an unique trie identifier consists the trie owner and root hash.
 func (p *triePrefetcher) trieID(owner common.Hash, root common.Hash) string {
-	// The trie in verkle is only identified by state root
-	if p.verkle {
+	// The trie in ubt is only identified by state root
+	if p.isUBT {
 		return p.root.Hex()
 	}
 	// The trie in merkle is either identified by state root (account trie),
@@ -340,12 +340,12 @@ func (sf *subfetcher) terminate(async bool) {
 
 // openTrie resolves the target trie from database for prefetching.
 func (sf *subfetcher) openTrie() error {
-	// Open the verkle tree if the sub-fetcher is in verkle mode. Note, there is
-	// only a single fetcher for verkle.
-	if sf.db.TrieDB().IsVerkle() {
+	// Open the ubt tree if the sub-fetcher is in ubt mode. Note, there is
+	// only a single fetcher for ubt.
+	if sf.db.Type().Is(TypeUBT) {
 		tr, err := sf.db.OpenTrie(sf.state)
 		if err != nil {
-			log.Warn("Trie prefetcher failed opening verkle trie", "root", sf.root, "err", err)
+			log.Warn("Trie prefetcher failed opening UBT trie", "root", sf.root, "err", err)
 			return err
 		}
 		sf.trie = tr
@@ -388,6 +388,10 @@ func (sf *subfetcher) loop() {
 			sf.tasks = nil
 			sf.lock.Unlock()
 
+			var (
+				addresses []common.Address
+				slots     [][]byte
+			)
 			for _, task := range tasks {
 				if task.addr != nil {
 					key := *task.addr
@@ -400,6 +404,7 @@ func (sf *subfetcher) loop() {
 							sf.dupsCross++
 							continue
 						}
+						sf.seenReadAddr[key] = struct{}{}
 					} else {
 						if _, ok := sf.seenReadAddr[key]; ok {
 							sf.dupsCross++
@@ -409,7 +414,9 @@ func (sf *subfetcher) loop() {
 							sf.dupsWrite++
 							continue
 						}
+						sf.seenWriteAddr[key] = struct{}{}
 					}
+					addresses = append(addresses, *task.addr)
 				} else {
 					key := *task.slot
 					if task.read {
@@ -421,6 +428,7 @@ func (sf *subfetcher) loop() {
 							sf.dupsCross++
 							continue
 						}
+						sf.seenReadSlot[key] = struct{}{}
 					} else {
 						if _, ok := sf.seenReadSlot[key]; ok {
 							sf.dupsCross++
@@ -430,25 +438,19 @@ func (sf *subfetcher) loop() {
 							sf.dupsWrite++
 							continue
 						}
+						sf.seenWriteSlot[key] = struct{}{}
 					}
+					slots = append(slots, key.Bytes())
 				}
-				if task.addr != nil {
-					sf.trie.GetAccount(*task.addr)
-				} else {
-					sf.trie.GetStorage(sf.addr, (*task.slot)[:])
+			}
+			if len(addresses) != 0 {
+				if err := sf.trie.PrefetchAccount(addresses); err != nil {
+					log.Error("Failed to prefetch accounts", "err", err)
 				}
-				if task.read {
-					if task.addr != nil {
-						sf.seenReadAddr[*task.addr] = struct{}{}
-					} else {
-						sf.seenReadSlot[*task.slot] = struct{}{}
-					}
-				} else {
-					if task.addr != nil {
-						sf.seenWriteAddr[*task.addr] = struct{}{}
-					} else {
-						sf.seenWriteSlot[*task.slot] = struct{}{}
-					}
+			}
+			if len(slots) != 0 {
+				if err := sf.trie.PrefetchStorage(sf.addr, slots); err != nil {
+					log.Error("Failed to prefetch storage", "err", err)
 				}
 			}
 

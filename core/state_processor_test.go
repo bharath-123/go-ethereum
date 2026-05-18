@@ -20,6 +20,7 @@ import (
 	"crypto/ecdsa"
 	"math"
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -30,12 +31,11 @@ import (
 	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/crypto/keccak"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/trie"
 	"github.com/holiman/uint256"
-	"golang.org/x/crypto/sha3"
 )
 
 func u64(val uint64) *uint64 { return &val }
@@ -125,7 +125,7 @@ func TestStateProcessorErrors(t *testing.T) {
 					},
 				},
 			}
-			blockchain, _  = NewBlockChain(db, nil, gspec, nil, beacon.New(ethash.NewFaker()), vm.Config{}, nil)
+			blockchain, _  = NewBlockChain(db, gspec, beacon.New(ethash.NewFaker()), nil)
 			tooBigInitCode = [params.MaxInitCodeSize + 1]byte{}
 		)
 
@@ -133,6 +133,7 @@ func TestStateProcessorErrors(t *testing.T) {
 		bigNumber := new(big.Int).SetBytes(common.MaxHash.Bytes())
 		tooBigNumber := new(big.Int).Set(bigNumber)
 		tooBigNumber.Add(tooBigNumber, common.Big1)
+		gasLimit := blockchain.CurrentHeader().GasLimit
 		for i, tt := range []struct {
 			txs  []*types.Transaction
 			want string
@@ -158,9 +159,9 @@ func TestStateProcessorErrors(t *testing.T) {
 			},
 			{ // ErrGasLimitReached
 				txs: []*types.Transaction{
-					makeTx(key1, 0, common.Address{}, big.NewInt(0), 21000000, big.NewInt(875000000), nil),
+					makeTx(key1, 0, common.Address{}, big.NewInt(0), gasLimit+1, big.NewInt(875000000), nil),
 				},
-				want: "could not apply tx 0 [0xbd49d8dadfd47fb846986695f7d4da3f7b2c48c8da82dbc211a26eb124883de9]: gas limit reached",
+				want: "could not apply tx 0 [0xd0fb3ea181e800cd55c4637c55c1f2f78137efb6bb9723e50bda3cad97208db2]: gas limit reached",
 			},
 			{ // ErrInsufficientFundsForTransfer
 				txs: []*types.Transaction{
@@ -186,9 +187,9 @@ func TestStateProcessorErrors(t *testing.T) {
 			},
 			{ // ErrGasLimitReached
 				txs: []*types.Transaction{
-					makeTx(key1, 0, common.Address{}, big.NewInt(0), params.TxGas*1000, big.NewInt(875000000), nil),
+					makeTx(key1, 0, common.Address{}, big.NewInt(0), gasLimit+1, big.NewInt(875000000), nil),
 				},
-				want: "could not apply tx 0 [0xbd49d8dadfd47fb846986695f7d4da3f7b2c48c8da82dbc211a26eb124883de9]: gas limit reached",
+				want: "could not apply tx 0 [0xd0fb3ea181e800cd55c4637c55c1f2f78137efb6bb9723e50bda3cad97208db2]: gas limit reached",
 			},
 			{ // ErrFeeCapTooLow
 				txs: []*types.Transaction{
@@ -255,7 +256,14 @@ func TestStateProcessorErrors(t *testing.T) {
 				},
 				want: "could not apply tx 0 [0xc18d10f4c809dbdfa1a074c3300de9bc4b7f16a20f0ec667f6f67312b71b956a]: EIP-7702 transaction with empty auth list (sender 0x71562b71999873DB5b286dF957af199Ec94617F7)",
 			},
-			// ErrSetCodeTxCreate cannot be tested: it is impossible to create a SetCode-tx with nil `to`.
+			// ErrSetCodeTxCreate cannot be tested here: it is impossible to create a SetCode-tx with nil `to`.
+			// The EstimateGas API tests test this case.
+			{ // ErrGasLimitTooHigh
+				txs: []*types.Transaction{
+					makeTx(key1, 0, common.Address{}, big.NewInt(0), params.MaxTxGas+1, big.NewInt(875000000), nil),
+				},
+				want: "could not apply tx 0 [0x16505812a6da0b0150593e4d4eb90190ba64816a04b27d19ca926ebd6aff8aa0]: transaction gas limit too high (cap: 16777216, tx: 16777217)",
+			},
 		} {
 			block := GenerateBadBlock(gspec.ToBlock(), beacon.New(ethash.NewFaker()), tt.txs, gspec.Config, false)
 			_, err := blockchain.InsertChain(types.Blocks{block})
@@ -292,7 +300,7 @@ func TestStateProcessorErrors(t *testing.T) {
 					},
 				},
 			}
-			blockchain, _ = NewBlockChain(db, nil, gspec, nil, ethash.NewFaker(), vm.Config{}, nil)
+			blockchain, _ = NewBlockChain(db, gspec, ethash.NewFaker(), nil)
 		)
 		defer blockchain.Stop()
 		for i, tt := range []struct {
@@ -331,7 +339,7 @@ func TestStateProcessorErrors(t *testing.T) {
 					},
 				},
 			}
-			blockchain, _ = NewBlockChain(db, nil, gspec, nil, beacon.New(ethash.NewFaker()), vm.Config{}, nil)
+			blockchain, _ = NewBlockChain(db, gspec, beacon.New(ethash.NewFaker()), nil)
 		)
 		defer blockchain.Stop()
 		for i, tt := range []struct {
@@ -391,7 +399,7 @@ func GenerateBadBlock(parent *types.Block, engine consensus.Engine, txs types.Tr
 	var receipts []*types.Receipt
 	// The post-state result doesn't need to be correct (this is a bad block), but we do need something there
 	// Preferably something unique. So let's use a combo of blocknum + txhash
-	hasher := sha3.NewLegacyKeccak256()
+	hasher := keccak.NewLegacyKeccak256()
 	hasher.Write(header.Number.Bytes())
 	var cumulativeGas uint64
 	var nBlobs int
@@ -415,10 +423,120 @@ func GenerateBadBlock(parent *types.Block, engine consensus.Engine, txs types.Tr
 		beaconRoot := common.HexToHash("0xbeac00")
 		header.ParentBeaconRoot = &beaconRoot
 	}
+	if config.IsAmsterdam(header.Number, header.Time) {
+		header.SlotNumber = new(uint64)
+	}
 	// Assemble and return the final block for sealing
 	body := &types.Body{Transactions: txs}
 	if config.IsShanghai(header.Number, header.Time) {
 		body.Withdrawals = []*types.Withdrawal{}
 	}
 	return types.NewBlock(header, body, receipts, trie.NewStackTrie(nil))
+}
+
+// TestEIP8037MaxRegularGasValidation tests that transactions with floor data gas
+// exceeding MaxTxGas are rejected in Amsterdam.
+func TestEIP8037MaxRegularGasValidation(t *testing.T) {
+	var (
+		// Create an Amsterdam-enabled chain config
+		config = &params.ChainConfig{
+			ChainID:                 big.NewInt(1),
+			HomesteadBlock:          big.NewInt(0),
+			EIP150Block:             big.NewInt(0),
+			EIP155Block:             big.NewInt(0),
+			EIP158Block:             big.NewInt(0),
+			ByzantiumBlock:          big.NewInt(0),
+			ConstantinopleBlock:     big.NewInt(0),
+			PetersburgBlock:         big.NewInt(0),
+			IstanbulBlock:           big.NewInt(0),
+			MuirGlacierBlock:        big.NewInt(0),
+			BerlinBlock:             big.NewInt(0),
+			LondonBlock:             big.NewInt(0),
+			ArrowGlacierBlock:       big.NewInt(0),
+			GrayGlacierBlock:        big.NewInt(0),
+			MergeNetsplitBlock:      big.NewInt(0),
+			ShanghaiTime:            u64(0),
+			CancunTime:              u64(0),
+			PragueTime:              u64(0),
+			OsakaTime:               u64(0),
+			AmsterdamTime:           u64(0),
+			TerminalTotalDifficulty: big.NewInt(0),
+			Ethash:                  new(params.EthashConfig),
+			BlobScheduleConfig: &params.BlobScheduleConfig{
+				Cancun:    params.DefaultCancunBlobConfig,
+				Prague:    params.DefaultPragueBlobConfig,
+				Osaka:     params.DefaultOsakaBlobConfig,
+				Amsterdam: params.DefaultOsakaBlobConfig,
+			},
+		}
+		rules   = config.Rules(common.Big0, true, 0)
+		signer  = types.LatestSigner(config)
+		key1, _ = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	)
+
+	// Calculate how much data is needed to exceed MaxTxGas with floor data gas.
+	// FloorDataGas = TxGas + tokens * TxCostFloorPerToken
+	// For non-zero bytes: tokens = 4 per byte, so cost = 40 gas per byte
+	// MaxTxGas = 16,777,216
+	// To exceed: tokens * 10 > MaxTxGas - TxGas = 16,756,216
+	// For non-zero bytes: bytes * 4 * 10 > 16,756,216 → bytes > 418,905
+	dataSize := 420000 // This should exceed MaxTxGas
+	largeData := make([]byte, dataSize)
+	for i := range largeData {
+		largeData[i] = 0xFF // Non-zero bytes have higher token cost
+	}
+
+	// Verify that floor data gas exceeds MaxTxGas
+	floorGas, err := FloorDataGas(rules, largeData, nil)
+	if err != nil {
+		t.Fatalf("Failed to calculate floor data gas: %v", err)
+	}
+	if floorGas <= params.MaxTxGas {
+		t.Fatalf("Test setup error: floor data gas %d should exceed MaxTxGas %d", floorGas, params.MaxTxGas)
+	}
+	t.Logf("Floor data gas: %d, MaxTxGas: %d", floorGas, params.MaxTxGas)
+
+	// Create a transaction with large calldata. The gas limit is set high enough
+	// to cover the floor data gas, but since floor data gas > MaxTxGas,
+	// this should be rejected in Amsterdam.
+	tx, _ := types.SignTx(types.NewTx(&types.DynamicFeeTx{
+		Nonce:     0,
+		GasTipCap: big.NewInt(params.InitialBaseFee),
+		GasFeeCap: big.NewInt(params.InitialBaseFee),
+		Gas:       floorGas + 1000000, // Enough gas to cover floor + state gas
+		To:        &common.Address{},
+		Value:     big.NewInt(0),
+		Data:      largeData,
+	}), signer, key1)
+
+	var (
+		db    = rawdb.NewMemoryDatabase()
+		gspec = &Genesis{
+			Config:   config,
+			GasLimit: 100_000_000, // High block gas limit to not interfere with the test
+			Alloc: types.GenesisAlloc{
+				common.HexToAddress("0x71562b71999873DB5b286dF957af199Ec94617F7"): types.Account{
+					Balance: new(big.Int).Mul(big.NewInt(1000000), big.NewInt(params.Ether)), // Lots of ether
+					Nonce:   0,
+				},
+			},
+		}
+		blockchain, _ = NewBlockChain(db, gspec, beacon.New(ethash.NewFaker()), nil)
+	)
+	defer blockchain.Stop()
+
+	block := GenerateBadBlock(gspec.ToBlock(), beacon.New(ethash.NewFaker()), types.Transactions{tx}, config, false)
+	_, err = blockchain.InsertChain(types.Blocks{block})
+	if err == nil {
+		t.Fatal("block with floor data gas > MaxTxGas should have been rejected")
+	}
+	// The error should indicate that max regular gas exceeds the limit.
+	// This validates EIP-8037: even though the tx gas limit can exceed MaxTxGas,
+	// the regular gas consumption (max of intrinsic and floor) must still fit.
+	// Without this check, the transaction would be processed but cause
+	// state inconsistency (showing up as "invalid gas used" error later).
+	if !strings.Contains(err.Error(), "max regular gas") || !strings.Contains(err.Error(), "exceeds limit") {
+		t.Fatalf("expected 'max regular gas exceeds limit' error, got: %v", err)
+	}
+	t.Logf("Got expected error: %v", err)
 }

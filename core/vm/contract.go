@@ -31,8 +31,8 @@ type Contract struct {
 	caller  common.Address
 	address common.Address
 
-	jumpdests map[common.Hash]bitvec // Aggregated result of JUMPDEST analysis.
-	analysis  bitvec                 // Locally cached result of JUMPDEST analysis
+	jumpDests JumpDestCache // Aggregated result of JUMPDEST analysis.
+	analysis  BitVec        // Locally cached result of JUMPDEST analysis
 
 	Code     []byte
 	CodeHash common.Hash
@@ -42,20 +42,21 @@ type Contract struct {
 	IsDeployment bool
 	IsSystemCall bool
 
-	Gas   uint64
-	value *uint256.Int
+	Gas     GasBudget
+	GasUsed GasUsed // EIP-8037: canonical per-frame gas usage accumulator
+	value   *uint256.Int
 }
 
 // NewContract returns a new contract environment for the execution of EVM.
-func NewContract(caller common.Address, address common.Address, value *uint256.Int, gas uint64, jumpDests map[common.Hash]bitvec) *Contract {
-	// Initialize the jump analysis map if it's nil, mostly for tests
+func NewContract(caller common.Address, address common.Address, value *uint256.Int, gas GasBudget, jumpDests JumpDestCache) *Contract {
+	// Initialize the jump analysis cache if it's nil, mostly for tests
 	if jumpDests == nil {
-		jumpDests = make(map[common.Hash]bitvec)
+		jumpDests = newMapJumpDests()
 	}
 	return &Contract{
 		caller:    caller,
 		address:   address,
-		jumpdests: jumpDests,
+		jumpDests: jumpDests,
 		Gas:       gas,
 		value:     value,
 	}
@@ -87,12 +88,12 @@ func (c *Contract) isCode(udest uint64) bool {
 	// contracts ( not temporary initcode), we store the analysis in a map
 	if c.CodeHash != (common.Hash{}) {
 		// Does parent context have the analysis?
-		analysis, exist := c.jumpdests[c.CodeHash]
+		analysis, exist := c.jumpDests.Load(c.CodeHash)
 		if !exist {
 			// Do the analysis and save in parent context
 			// We do not need to store it in c.analysis
 			analysis = codeBitmap(c.Code)
-			c.jumpdests[c.CodeHash] = analysis
+			c.jumpDests.Store(c.CodeHash, analysis)
 		}
 		// Also stash it in current contract for faster access
 		c.analysis = analysis
@@ -126,26 +127,56 @@ func (c *Contract) Caller() common.Address {
 }
 
 // UseGas attempts the use gas and subtracts it and returns true on success
-func (c *Contract) UseGas(gas uint64, logger *tracing.Hooks, reason tracing.GasChangeReason) (ok bool) {
-	if c.Gas < gas {
+func (c *Contract) UseGas(cost GasCosts, logger *tracing.Hooks, reason tracing.GasChangeReason) (ok bool) {
+	prior, ok := c.Gas.Charge(cost)
+	if !ok {
 		return false
 	}
 	if logger != nil && logger.OnGasChange != nil && reason != tracing.GasChangeIgnored {
-		logger.OnGasChange(c.Gas, c.Gas-gas, reason)
+		logger.OnGasChange(prior, c.Gas.RegularGas, reason)
 	}
-	c.Gas -= gas
+	c.GasUsed.Add(cost)
 	return true
 }
 
-// RefundGas refunds gas to the contract
-func (c *Contract) RefundGas(gas uint64, logger *tracing.Hooks, reason tracing.GasChangeReason) {
-	if gas == 0 {
+// RefundGas refunds gas to the contract.
+func (c *Contract) RefundGas(err error, initialRegularGasUsed uint64, gas GasBudget, gasUsed GasUsed, logger *tracing.Hooks, reason tracing.GasChangeReason) {
+	if err != nil {
+		if gasUsed.StateGas > 0 {
+			gas.StateGas += uint64(gasUsed.StateGas)
+		}
+		gasUsed.StateGas = 0
+		if gas.StateGasRefund > 0 {
+			if gas.StateGas >= gas.StateGasRefund {
+				gas.StateGas -= gas.StateGasRefund
+			} else {
+				gas.StateGas = 0
+			}
+			gas.StateGasRefund = 0
+		}
+	}
+	if gas.RegularGas == 0 && gas.StateGas == 0 && gasUsed.StateGas == 0 && gasUsed.RegularGas == 0 && gas.StateGasRefund == 0 {
 		return
 	}
 	if logger != nil && logger.OnGasChange != nil && reason != tracing.GasChangeIgnored {
-		logger.OnGasChange(c.Gas, c.Gas+gas, reason)
+		logger.OnGasChange(c.Gas.RegularGas, c.Gas.RegularGas+gas.RegularGas, reason)
 	}
-	c.Gas += gas
+	c.Gas.RegularGas += gas.RegularGas
+	c.Gas.StateGas = gas.StateGas
+	// Propagate the child's applied inline refund so a later ancestor
+	// error can still undo the reservoir inflation.
+	c.Gas.StateGasRefund += gas.StateGasRefund
+	c.GasUsed.StateGas += gasUsed.StateGas
+	c.GasUsed.RegularGas = initialRegularGasUsed + gasUsed.RegularGas
+}
+
+// Refunds the account creation state costs if a CREATE/CREATE2 call fails.
+func (c *Contract) RefundCreateStateGas(refund uint64) {
+	if refund > 0 {
+		c.Gas.StateGas += refund
+		c.Gas.StateGasRefund += refund
+		c.GasUsed.StateGas -= int64(refund)
+	}
 }
 
 // Address returns the contracts address
