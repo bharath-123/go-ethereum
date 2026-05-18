@@ -32,6 +32,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/blobstream/ticketstore"
 	"github.com/ethereum/go-ethereum/core/filtermaps"
 	"github.com/ethereum/go-ethereum/core/history"
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -111,6 +112,8 @@ type Ethereum struct {
 
 	filterMaps      *filtermaps.FilterMaps
 	closeFilterMaps chan chan struct{}
+
+	ticketStore *ticketstore.TicketStore
 
 	APIBackend *EthAPIBackend
 
@@ -307,6 +310,10 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	eth.filterMaps = filterMaps
 	eth.closeFilterMaps = make(chan chan struct{})
 
+	// POC blob-streaming ticket store: mints one ticket per chain head, hardcoded
+	// owner / BLS pubkey / blob count. To be replaced by the system contract.
+	eth.ticketStore = ticketstore.New(eth.blockchain)
+
 	// TxPool
 	if config.TxPool.Journal != "" {
 		config.TxPool.Journal = stack.ResolvePath(config.TxPool.Journal)
@@ -414,6 +421,9 @@ func (s *Ethereum) APIs() []rpc.API {
 		}, {
 			Namespace: "net",
 			Service:   s.netRPCService,
+		}, {
+			Namespace: "blobstream",
+			Service:   NewBlobStreamAPI(s),
 		},
 	}...)
 }
@@ -591,6 +601,7 @@ func (s *Ethereum) Stop() error {
 	s.closeFilterMaps <- ch
 	<-ch
 	s.filterMaps.Stop()
+	s.ticketStore.Stop()
 	s.txPool.Close()
 	s.blockchain.Stop()
 	s.engine.Close()
