@@ -234,6 +234,53 @@ func (api *ConsensusAPI) ForkchoiceUpdatedV4(ctx context.Context, update engine.
 	return api.forkchoiceUpdated(ctx, update, params, engine.PayloadV4, false)
 }
 
+// ForkchoiceUpdatedV5 mirrors V4 and, in addition, attaches the current set of
+// active blob-streaming tickets to the response (EIP-Blob-Streaming POC).
+// Payload attributes shape is unchanged from V4 for now.
+func (api *ConsensusAPI) ForkchoiceUpdatedV5(ctx context.Context, update engine.ForkchoiceStateV1, params *engine.PayloadAttributes) (engine.ForkChoiceResponse, error) {
+	if params != nil {
+		switch {
+		case params.Withdrawals == nil:
+			return engine.STATUS_INVALID, attributesErr("missing withdrawals")
+		case params.BeaconRoot == nil:
+			return engine.STATUS_INVALID, attributesErr("missing beacon root")
+		case params.SlotNumber == nil:
+			return engine.STATUS_INVALID, attributesErr("missing slot number")
+		case !api.checkFork(params.Timestamp, forks.Amsterdam):
+			return engine.STATUS_INVALID, unsupportedForkErr("fcuV5 must only be called for amsterdam payloads")
+		}
+	}
+	resp, err := api.forkchoiceUpdated(ctx, update, params, engine.PayloadV5, false)
+	resp.ActiveTickets = api.activeTickets()
+	return resp, err
+}
+
+// activeTickets snapshots the ticket store and projects it into the engine API
+// TicketInfoV1 shape. Returns nil if no ticket store is wired.
+func (api *ConsensusAPI) activeTickets() []engine.TicketInfoV1 {
+	store := api.eth.TicketStore()
+	if store == nil {
+		return nil
+	}
+	tickets := store.ActiveTickets()
+	if len(tickets) == 0 {
+		return nil
+	}
+	out := make([]engine.TicketInfoV1, len(tickets))
+	for i, t := range tickets {
+		pubkey := make(hexutil.Bytes, len(t.BLSPubkey))
+		copy(pubkey, t.BLSPubkey[:])
+		out[i] = engine.TicketInfoV1{
+			TicketID:              hexutil.Uint64(t.ID),
+			SellingBlockTimestamp: hexutil.Uint64(t.SellingTimestamp),
+			Owner:                 t.Owner,
+			BLSPubkey:             pubkey,
+			BlobCount:             hexutil.Uint64(t.BlobCount),
+		}
+	}
+	return out
+}
+
 func (api *ConsensusAPI) forkchoiceUpdated(ctx context.Context, update engine.ForkchoiceStateV1, payloadAttributes *engine.PayloadAttributes, payloadVersion engine.PayloadVersion, payloadWitness bool) (result engine.ForkChoiceResponse, err error) {
 	ctx, _, spanEnd := telemetry.StartSpan(ctx, "engine.forkchoiceUpdated")
 	defer spanEnd(&err)

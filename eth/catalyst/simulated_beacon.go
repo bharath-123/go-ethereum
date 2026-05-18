@@ -225,7 +225,7 @@ func (c *SimulatedBeacon) sealBlock(withdrawals []*types.Withdrawal, timestamp u
 	if err != nil {
 		return err
 	}
-	if fcResponse == engine.STATUS_SYNCING {
+	if fcResponse.PayloadStatus.Status == engine.SYNCING {
 		return errors.New("chain rewind prevented invocation of payload creation")
 	}
 

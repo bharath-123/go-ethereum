@@ -59,6 +59,11 @@ var (
 	// ExecutionPayloadV4 has the syntax of ExecutionPayloadV3 and appends the new
 	// field slotNumber.
 	PayloadV4 PayloadVersion = 0x4
+
+	// PayloadV5 is the identifier introduced by EIP-Blob-Streaming. It carries
+	// the same payload shape as V4 for now; the version exists so that
+	// engine_forkchoiceUpdatedV5 responses can include the activeTickets field.
+	PayloadV5 PayloadVersion = 0x5
 )
 
 //go:generate go run github.com/fjl/gencodec -type PayloadAttributes -field-override payloadAttributesMarshaling -out gen_blockparams.go
@@ -211,6 +216,19 @@ func (b *PayloadID) UnmarshalText(input []byte) error {
 type ForkChoiceResponse struct {
 	PayloadStatus PayloadStatusV1 `json:"payloadStatus"`
 	PayloadID     *PayloadID      `json:"payloadId"`
+	// ActiveTickets is populated by engine_forkchoiceUpdatedV5 only
+	// (EIP-Blob-Streaming). omitempty keeps V1-V4 responses byte-identical.
+	ActiveTickets []TicketInfoV1 `json:"activeTickets,omitempty"`
+}
+
+// TicketInfoV1 describes a single active blob-streaming ticket, as returned
+// in the engine_forkchoiceUpdatedV5 response under activeTickets.
+type TicketInfoV1 struct {
+	TicketID              hexutil.Uint64 `json:"ticketId"`
+	SellingBlockTimestamp hexutil.Uint64 `json:"sellingBlockTimestamp"`
+	Owner                 common.Address `json:"owner"`
+	BLSPubkey             hexutil.Bytes  `json:"blsPubkey"`
+	BlobCount             hexutil.Uint64 `json:"blobCount"`
 }
 
 type ForkchoiceStateV1 struct {

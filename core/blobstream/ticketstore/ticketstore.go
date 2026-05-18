@@ -140,8 +140,6 @@ func (ts *TicketStore) loop() {
 
 func (ts *TicketStore) onHead(timestamp uint64) {
 	ts.mu.Lock()
-	defer ts.mu.Unlock()
-
 	next := (ts.head + 1) % TicketLookahead
 	ts.ring[next] = Ticket{
 		ID:               ts.nextID,
@@ -152,5 +150,16 @@ func (ts *TicketStore) onHead(timestamp uint64) {
 	}
 	ts.filled[next] = true
 	ts.head = next
+	mintedID := ts.nextID
 	ts.nextID++
+
+	active := 0
+	for _, f := range ts.filled {
+		if f {
+			active++
+		}
+	}
+	ts.mu.Unlock()
+
+	log.Info("Blob-streaming ticket cache updated", "ticketId", mintedID, "sellingTimestamp", timestamp, "active", active)
 }

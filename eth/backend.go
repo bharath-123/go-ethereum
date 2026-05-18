@@ -446,6 +446,9 @@ func (s *Ethereum) Synced() bool                       { return s.handler.synced
 func (s *Ethereum) SetSynced()                         { s.handler.enableSyncedFeatures() }
 func (s *Ethereum) ArchiveMode() bool                  { return s.config.NoPruning }
 
+// TicketStore returns the blob-streaming POC ticket registry.
+func (s *Ethereum) TicketStore() *ticketstore.TicketStore { return s.ticketStore }
+
 // Protocols returns all the currently configured
 // network protocols to start.
 func (s *Ethereum) Protocols() []p2p.Protocol {
