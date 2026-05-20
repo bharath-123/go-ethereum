@@ -250,7 +250,7 @@ func (api *ConsensusAPI) ForkchoiceUpdatedV5(ctx context.Context, update engine.
 			return engine.STATUS_INVALID, unsupportedForkErr("fcuV5 must only be called for amsterdam payloads")
 		}
 	}
-	resp, err := api.forkchoiceUpdated(ctx, update, params, engine.PayloadV4, false)
+	resp, err := api.forkchoiceUpdated(ctx, update, params, engine.PayloadV5, false)
 	resp.ActiveTickets = api.activeTickets()
 	return resp, err
 }
@@ -535,7 +535,7 @@ func (api *ConsensusAPI) GetPayloadV6(payloadID engine.PayloadID) (*engine.Execu
 	return api.getPayload(
 		payloadID,
 		false,
-		[]engine.PayloadVersion{engine.PayloadV4},
+		[]engine.PayloadVersion{engine.PayloadV4, engine.PayloadV5},
 		[]forks.Fork{
 			forks.Amsterdam,
 		})
