@@ -151,14 +151,14 @@ type blobTxMeta struct {
 // and assembles a helper struct to track in memory.
 // Requires the transaction to have a sidecar (or that we introduce a special version tag for no-sidecar).
 func newBlobTxMeta(id uint64, size uint64, storageSize uint32, tx *types.Transaction) *blobTxMeta {
-	if tx.BlobTxSidecar() == nil {
-		// This should never happen, as the pool only admits blob transactions with a sidecar
-		panic("missing blob tx sidecar")
-	}
+	var sidecarVersion byte
+	if sc := tx.BlobTxSidecar(); sc != nil {
+		sidecarVersion = sc.Version
+	} // AOT blob txs have no sidecar; version stays 0
 	meta := &blobTxMeta{
 		hash:        tx.Hash(),
 		vhashes:     tx.BlobHashes(),
-		version:     tx.BlobTxSidecar().Version,
+		version:     sidecarVersion,
 		id:          id,
 		storageSize: storageSize,
 		size:        size,
@@ -568,7 +568,7 @@ func (p *BlobPool) parseTransaction(id uint64, size uint32, blob []byte) error {
 		log.Error("Failed to decode blob pool entry", "id", id, "err", err)
 		return err
 	}
-	if tx.BlobTxSidecar() == nil {
+	if tx.BlobTxSidecar() == nil && tx.BlobGasFeeCap().Sign() != 0 {
 		log.Error("Missing sidecar in blob pool entry", "id", id, "hash", tx.Hash())
 		return errors.New("missing blob sidecar")
 	}
@@ -1893,6 +1893,12 @@ func (p *BlobPool) Pending(filter txpool.PendingFilter) (map[common.Address][]*t
 			// Skip v0 or v1 blob transactions depending on the filter
 			if tx.version != filter.BlobVersion {
 				break // skip the rest because of nonce ordering
+			}
+			// AOT blob txs (zero blob fee cap, no sidecar) are held in the pool
+			// until the CL signals blob availability via FCU. Never include them
+			// in a block-building set.
+			if tx.blobFeeCap.IsZero() {
+				break
 			}
 
 			// If transaction filtering was requested, discard badly priced ones
