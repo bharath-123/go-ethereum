@@ -163,10 +163,10 @@ func ValidateTransaction(tx *types.Transaction, head *types.Header, signer types
 func validateBlobTx(tx *types.Transaction, head *types.Header, opts *ValidationOptions) error {
 	sidecar := tx.BlobTxSidecar()
 
-	// AOT blob txs carry no sidecar (the blob data is propagated by the CL) and
-	// commit to a zero blob fee cap as a signal. Skip all sidecar and fee-cap
-	// checks; the blob hash list is still required so the commitment is present.
-	if sidecar == nil && tx.BlobGasFeeCap().Sign() == 0 {
+	// AOT blob txs carry no sidecar (the blob data is propagated by the CL).
+	// Skip all sidecar and fee-cap checks; the blob hash list is still required
+	// so the commitment is present.
+	if sidecar == nil {
 		hashes := tx.BlobHashes()
 		if len(hashes) == 0 {
 			return errors.New("blobless blob transaction")
@@ -175,9 +175,6 @@ func validateBlobTx(tx *types.Transaction, head *types.Header, opts *ValidationO
 			return fmt.Errorf("too many blobs in transaction: have %d, permitted %d", len(hashes), params.BlobTxMaxBlobs)
 		}
 		return nil
-	}
-	if sidecar == nil {
-		return errors.New("missing sidecar in blob transaction")
 	}
 	// Ensure the sidecar is constructed with the correct version, consistent
 	// with the current fork.
