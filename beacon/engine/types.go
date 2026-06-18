@@ -77,11 +77,12 @@ type PayloadAttributes struct {
 	Withdrawals           []*types.Withdrawal `json:"withdrawals"`
 	BeaconRoot            *common.Hash        `json:"parentBeaconBlockRoot"`
 	SlotNumber            *uint64             `json:"slotNumber"`
-	// AvailableAotBlobVersionedHashes carries the versioned hashes of AOT blobs
-	// whose data has been pre-propagated on the consensus-layer sidecar subnets
-	// (EIP-Blob-Streaming, engine_forkchoiceUpdatedV5). The POC accepts the field
-	// but does not yet use it during block building.
-	AvailableAotBlobVersionedHashes []common.Hash `json:"availableAotBlobVersionedHashes"`
+	// AvailableAotBlobCommitments carries, per available AOT bundle, the blob
+	// versioned hashes whose data has been pre-propagated on the consensus-layer
+	// sidecar subnets (EIP-Blob-Streaming, engine_forkchoiceUpdatedV5): a list of
+	// lists of versioned hashes. The POC accepts the field but does not yet use it
+	// during block building.
+	AvailableAotBlobCommitments [][]common.Hash `json:"availableAotBlobCommitments"`
 }
 
 // JSON type overrides for PayloadAttributes.

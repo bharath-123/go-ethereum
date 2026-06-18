@@ -16,13 +16,13 @@ var _ = (*payloadAttributesMarshaling)(nil)
 // MarshalJSON marshals as JSON.
 func (p PayloadAttributes) MarshalJSON() ([]byte, error) {
 	type PayloadAttributes struct {
-		Timestamp                       hexutil.Uint64      `json:"timestamp"             gencodec:"required"`
-		Random                          common.Hash         `json:"prevRandao"            gencodec:"required"`
-		SuggestedFeeRecipient           common.Address      `json:"suggestedFeeRecipient" gencodec:"required"`
-		Withdrawals                     []*types.Withdrawal `json:"withdrawals"`
-		BeaconRoot                      *common.Hash        `json:"parentBeaconBlockRoot"`
-		SlotNumber                      *hexutil.Uint64     `json:"slotNumber"`
-		AvailableAotBlobVersionedHashes []common.Hash       `json:"availableAotBlobVersionedHashes"`
+		Timestamp                   hexutil.Uint64      `json:"timestamp"             gencodec:"required"`
+		Random                      common.Hash         `json:"prevRandao"            gencodec:"required"`
+		SuggestedFeeRecipient       common.Address      `json:"suggestedFeeRecipient" gencodec:"required"`
+		Withdrawals                 []*types.Withdrawal `json:"withdrawals"`
+		BeaconRoot                  *common.Hash        `json:"parentBeaconBlockRoot"`
+		SlotNumber                  *hexutil.Uint64     `json:"slotNumber"`
+		AvailableAotBlobCommitments [][]common.Hash     `json:"availableAotBlobCommitments"`
 	}
 	var enc PayloadAttributes
 	enc.Timestamp = hexutil.Uint64(p.Timestamp)
@@ -31,20 +31,20 @@ func (p PayloadAttributes) MarshalJSON() ([]byte, error) {
 	enc.Withdrawals = p.Withdrawals
 	enc.BeaconRoot = p.BeaconRoot
 	enc.SlotNumber = (*hexutil.Uint64)(p.SlotNumber)
-	enc.AvailableAotBlobVersionedHashes = p.AvailableAotBlobVersionedHashes
+	enc.AvailableAotBlobCommitments = p.AvailableAotBlobCommitments
 	return json.Marshal(&enc)
 }
 
 // UnmarshalJSON unmarshals from JSON.
 func (p *PayloadAttributes) UnmarshalJSON(input []byte) error {
 	type PayloadAttributes struct {
-		Timestamp                       *hexutil.Uint64     `json:"timestamp"             gencodec:"required"`
-		Random                          *common.Hash        `json:"prevRandao"            gencodec:"required"`
-		SuggestedFeeRecipient           *common.Address     `json:"suggestedFeeRecipient" gencodec:"required"`
-		Withdrawals                     []*types.Withdrawal `json:"withdrawals"`
-		BeaconRoot                      *common.Hash        `json:"parentBeaconBlockRoot"`
-		SlotNumber                      *hexutil.Uint64     `json:"slotNumber"`
-		AvailableAotBlobVersionedHashes []common.Hash       `json:"availableAotBlobVersionedHashes"`
+		Timestamp                   *hexutil.Uint64     `json:"timestamp"             gencodec:"required"`
+		Random                      *common.Hash        `json:"prevRandao"            gencodec:"required"`
+		SuggestedFeeRecipient       *common.Address     `json:"suggestedFeeRecipient" gencodec:"required"`
+		Withdrawals                 []*types.Withdrawal `json:"withdrawals"`
+		BeaconRoot                  *common.Hash        `json:"parentBeaconBlockRoot"`
+		SlotNumber                  *hexutil.Uint64     `json:"slotNumber"`
+		AvailableAotBlobCommitments [][]common.Hash     `json:"availableAotBlobCommitments"`
 	}
 	var dec PayloadAttributes
 	if err := json.Unmarshal(input, &dec); err != nil {
@@ -71,8 +71,8 @@ func (p *PayloadAttributes) UnmarshalJSON(input []byte) error {
 	if dec.SlotNumber != nil {
 		p.SlotNumber = (*uint64)(dec.SlotNumber)
 	}
-	if dec.AvailableAotBlobVersionedHashes != nil {
-		p.AvailableAotBlobVersionedHashes = dec.AvailableAotBlobVersionedHashes
+	if dec.AvailableAotBlobCommitments != nil {
+		p.AvailableAotBlobCommitments = dec.AvailableAotBlobCommitments
 	}
 	return nil
 }

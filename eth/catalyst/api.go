@@ -791,7 +791,12 @@ func (api *ConsensusAPI) NewPayloadV4(ctx context.Context, params engine.Executa
 }
 
 // NewPayloadV5 creates an Eth1 block, inserts it in the chain, and returns the status of the chain.
-func (api *ConsensusAPI) NewPayloadV5(ctx context.Context, params engine.ExecutableData, versionedHashes []common.Hash, beaconRoot *common.Hash, executionRequests []hexutil.Bytes) (engine.PayloadStatusV1, error) {
+//
+// aotVersionedHashes carries, per available AOT bundle, the blob versioned hashes
+// of the AOT blob transactions in the payload (EIP-Blob-Streaming): a list of
+// lists of versioned hashes. The POC accepts the field but does not yet validate
+// it; AOT blob data availability is the responsibility of the consensus layer.
+func (api *ConsensusAPI) NewPayloadV5(ctx context.Context, params engine.ExecutableData, versionedHashes []common.Hash, aotVersionedHashes [][]common.Hash, beaconRoot *common.Hash, executionRequests []hexutil.Bytes) (engine.PayloadStatusV1, error) {
 	switch {
 	case params.Withdrawals == nil:
 		return invalidStatus, paramsErr("nil withdrawals post-shanghai")
