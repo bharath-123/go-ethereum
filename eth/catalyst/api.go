@@ -532,13 +532,20 @@ func (api *ConsensusAPI) GetPayloadV5(payloadID engine.PayloadID) (*engine.Execu
 // GetPayloadV6 returns a cached payload by id. This endpoint should only
 // be used after the Amsterdam fork.
 func (api *ConsensusAPI) GetPayloadV6(payloadID engine.PayloadID) (*engine.ExecutionPayloadEnvelope, error) {
-	return api.getPayload(
+	data, err := api.getPayload(
 		payloadID,
 		false,
 		[]engine.PayloadVersion{engine.PayloadV4, engine.PayloadV5},
 		[]forks.Fork{
 			forks.Amsterdam,
 		})
+	if err != nil {
+		return nil, err
+	}
+	// Blob-streaming POC: AOT blob bundling is not implemented yet, so report an
+	// empty set. AOT blob data availability is the consensus layer's responsibility.
+	data.AotBlobInfo = []*engine.AotBlobInfo{}
+	return data, nil
 }
 
 // getPayload will retrieve the specified payload and verify it conforms to the

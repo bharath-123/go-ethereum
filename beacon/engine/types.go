@@ -77,6 +77,11 @@ type PayloadAttributes struct {
 	Withdrawals           []*types.Withdrawal `json:"withdrawals"`
 	BeaconRoot            *common.Hash        `json:"parentBeaconBlockRoot"`
 	SlotNumber            *uint64             `json:"slotNumber"`
+	// AvailableAotBlobVersionedHashes carries the versioned hashes of AOT blobs
+	// whose data has been pre-propagated on the consensus-layer sidecar subnets
+	// (EIP-Blob-Streaming, engine_forkchoiceUpdatedV5). The POC accepts the field
+	// but does not yet use it during block building.
+	AvailableAotBlobVersionedHashes []common.Hash `json:"availableAotBlobVersionedHashes"`
 }
 
 // JSON type overrides for PayloadAttributes.
@@ -139,9 +144,20 @@ type ExecutionPayloadEnvelope struct {
 	ExecutionPayload *ExecutableData `json:"executionPayload"  gencodec:"required"`
 	BlockValue       *big.Int        `json:"blockValue"  gencodec:"required"`
 	BlobsBundle      *BlobsBundle    `json:"blobsBundle"`
+	AotBlobInfo      []*AotBlobInfo  `json:"aotBlobInfo"`
 	Requests         [][]byte        `json:"executionRequests"`
 	Override         bool            `json:"shouldOverrideBuilder"`
 	Witness          *hexutil.Bytes  `json:"witness,omitempty"`
+}
+
+// AotBlobInfo describes a single AOT blob commitment included in a payload
+// (EIP-Blob-Streaming, AotBlobBundleV1 in the engine API spec). Unlike JIT
+// blobs, the execution layer does not hold the AOT blob data; data availability
+// is the responsibility of the consensus layer. The POC returns an empty list.
+type AotBlobInfo struct {
+	VersionedHash common.Hash     `json:"versionedHash"`
+	KZGCommitment hexutil.Bytes   `json:"kzgCommitment"`
+	KZGProofs     []hexutil.Bytes `json:"kzgProofs"`
 }
 
 // BlobsBundle includes the marshalled sidecar data. Note this structure is

@@ -18,6 +18,7 @@ func (e ExecutionPayloadEnvelope) MarshalJSON() ([]byte, error) {
 		ExecutionPayload *ExecutableData `json:"executionPayload"  gencodec:"required"`
 		BlockValue       *hexutil.Big    `json:"blockValue"  gencodec:"required"`
 		BlobsBundle      *BlobsBundle    `json:"blobsBundle"`
+		AotBlobInfo      []*AotBlobInfo  `json:"aotBlobInfo"`
 		Requests         []hexutil.Bytes `json:"executionRequests"`
 		Override         bool            `json:"shouldOverrideBuilder"`
 		Witness          *hexutil.Bytes  `json:"witness,omitempty"`
@@ -26,6 +27,7 @@ func (e ExecutionPayloadEnvelope) MarshalJSON() ([]byte, error) {
 	enc.ExecutionPayload = e.ExecutionPayload
 	enc.BlockValue = (*hexutil.Big)(e.BlockValue)
 	enc.BlobsBundle = e.BlobsBundle
+	enc.AotBlobInfo = e.AotBlobInfo
 	if e.Requests != nil {
 		enc.Requests = make([]hexutil.Bytes, len(e.Requests))
 		for k, v := range e.Requests {
@@ -43,6 +45,7 @@ func (e *ExecutionPayloadEnvelope) UnmarshalJSON(input []byte) error {
 		ExecutionPayload *ExecutableData `json:"executionPayload"  gencodec:"required"`
 		BlockValue       *hexutil.Big    `json:"blockValue"  gencodec:"required"`
 		BlobsBundle      *BlobsBundle    `json:"blobsBundle"`
+		AotBlobInfo      []*AotBlobInfo  `json:"aotBlobInfo"`
 		Requests         []hexutil.Bytes `json:"executionRequests"`
 		Override         *bool           `json:"shouldOverrideBuilder"`
 		Witness          *hexutil.Bytes  `json:"witness,omitempty"`
@@ -61,6 +64,9 @@ func (e *ExecutionPayloadEnvelope) UnmarshalJSON(input []byte) error {
 	e.BlockValue = (*big.Int)(dec.BlockValue)
 	if dec.BlobsBundle != nil {
 		e.BlobsBundle = dec.BlobsBundle
+	}
+	if dec.AotBlobInfo != nil {
+		e.AotBlobInfo = dec.AotBlobInfo
 	}
 	if dec.Requests != nil {
 		e.Requests = make([][]byte, len(dec.Requests))
